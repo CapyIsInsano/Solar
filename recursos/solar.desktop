@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Solar
+GenericName=Gestor de archivos
+GenericName[en]=File Manager
+Comment=Explora y organiza tus archivos, con carpetas de colores y logotipos
+Comment[en]=Browse and organize your files, with colored folders and logos
+Exec=solar %U
+Icon=solar
+Terminal=false
+StartupWMClass=solar
+Categories=System;FileTools;FileManager;Utility;Core;
+MimeType=inode/directory;
+Keywords=archivos;carpetas;explorador;gestor;files;folders;explorer;manager;
