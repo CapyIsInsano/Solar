@@ -1,0 +1,39 @@
+[package]
+name = "solar"
+version = "0.1.0-alpha"
+edition = "2024"
+rust-version = "1.95"
+description = "Solar — gestor de archivos con núcleo en C, interfaz en Rust y configuración en Lua"
+license = "GPL-3.0-or-later"
+authors = ["Arturo (CapyIsInsano)"]
+build = "build.rs"
+readme = "README.md"
+keywords = ["gestor-de-archivos", "file-manager", "egui", "lua"]
+categories = ["filesystem", "gui"]
+
+[dependencies]
+# glow (OpenGL) en vez de wgpu: compila más rápido y anda en GPUs viejitas
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+# Solo para activar las funciones por defecto de winit (Wayland por dlopen y
+# bordes de ventana dibujados por el cliente cuando no se usa la barra de Solar)
+winit = "0.30"
+egui-phosphor = { version = "0.14", default-features = false, features = ["regular", "fill"] }
+
+[build-dependencies]
+cc = "1"
+lua-src = { version = "551", optional = true }
+pkg-config = { version = "0.3", optional = true }
+
+[features]
+default = ["lua-vendorizado"]
+lua-vendorizado = ["dep:lua-src"]
+lua-sistema = ["dep:pkg-config"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2
