@@ -51,6 +51,29 @@ fn main() {
     // enlaza con glibc viejita
     println!("cargo:rustc-link-lib=dl");
     println!("cargo:rustc-link-lib=pthread");
+
+    anunciar_commit();
+}
+
+/// El commit del que sale este programa, para que «Buscar actualizaciones»
+/// sepa si en GitHub hay commits más nuevos. Lo da el actualizador
+/// (SOLAR_COMMIT) o, si compilas desde un clon, `git rev-parse HEAD`.
+fn anunciar_commit() {
+    println!("cargo:rerun-if-env-changed=SOLAR_COMMIT");
+    let mut commit = env::var("SOLAR_COMMIT").unwrap_or_default();
+    if commit.trim().is_empty() && Path::new(".git").exists() {
+        println!("cargo:rerun-if-changed=.git/HEAD");
+        println!("cargo:rerun-if-changed=.git/refs");
+        println!("cargo:rerun-if-changed=.git/packed-refs");
+        if let Ok(salida) = std::process::Command::new("git").args(["rev-parse", "HEAD"]).output()
+            && salida.status.success()
+        {
+            commit = String::from_utf8_lossy(&salida.stdout).into_owned();
+        }
+    }
+    let commit = commit.trim();
+    let valido = commit.len() >= 7 && commit.chars().all(|c| c.is_ascii_hexdigit());
+    println!("cargo:rustc-env=SOLAR_COMMIT={}", if valido { commit } else { "" });
 }
 
 /// Cómo enlazar Lua (se anuncia a cargo después de compilar el núcleo).
