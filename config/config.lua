@@ -16,8 +16,9 @@ local en_la_laptop = os.getenv("HOSTNAME") == "x220"
 
 return {
   -- ── Apariencia ──────────────────────────────────────────────────────
-  tema = "solar",            -- solar, amanecer, eclipse, nebulosa, aurora,
-                             -- oceano, marte, grafito, luna… o uno tuyo
+  tema = "sol",              -- sol, aurora (clara), eclipse, nebulosa, venus,
+                             -- neptuno, marte, mercurio, luna (clara)… o uno
+                             -- tuyo
   transparencia = false,     -- fondo transparente (necesita compositor:
                              -- Niri, Hyprland, Sway con blur, KWin, picom…)
   opacidad = 0.85,           -- 0.30 (muy transparente) a 1.00 (sólido)
@@ -26,6 +27,15 @@ return {
                              -- ruta a un .ttf/.otf, p. ej. "~/.fonts/Inter.ttf"
   barra_titulo_integrada = true,  -- Solar dibuja sus botones de ventana;
                                   -- false = bordes del sistema (al reiniciar)
+
+  -- ── Sonido y animaciones ────────────────────────────────────────────
+  sonidos = true,            -- clics, avisos, errores… (los de Capyro)
+  volumen = 0.6,             -- 0.0 a 1.0
+  animaciones = true,        -- transiciones; apágalas si tu PC es lenta
+
+  -- ── Actualizaciones ─────────────────────────────────────────────────
+  buscar_actualizaciones = true,           -- revisar GitHub al abrir (1 vez al día)
+  repo_actualizaciones = "CapyIsInsano/Solar",
 
   -- ── Distribución ────────────────────────────────────────────────────
   barra_ubicacion = "arriba",     -- "arriba" | "abajo"
