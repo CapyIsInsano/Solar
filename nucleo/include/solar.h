@@ -361,6 +361,13 @@ typedef struct {
     /* Dispositivos */
     int32_t mostrar_usb;
     int32_t mostrar_discos_internos;
+    /* Sonido y animaciones */
+    int32_t sonidos;
+    double  volumen;                /* 0.00 – 1.00 */
+    int32_t animaciones;
+    /* Actualizaciones */
+    int32_t buscar_actualizaciones; /* al abrir, una vez al día */
+    char   *repo_actualizaciones;   /* "usuario/repo" de GitHub */
     /* Listas */
     SolarLugar *lugares;
     size_t      n_lugares;
@@ -423,6 +430,64 @@ void solar_temas_liberar(SolarTemas *temas);
 int  solar_tema_guardar(const char *archivo, const SolarTema *tema);
 /* Clave Lua de cada color ("fondo", "acento"…). */
 const char *solar_color_clave(int indice);
+/* Id vigente de un tema con nombre viejo ("solar" → "sol", "amanecer" →
+ * "aurora", "oceano" → "neptuno", "grafito" → "mercurio"). */
+const char *solar_tema_id_actual(const char *id);
+
+/* ===================================================================== */
+/*  Efectos de sonido                                                    */
+/* ===================================================================== */
+
+/* Decodifica un MP3 en memoria y lo guarda en la ranura 'id' (0–15).
+ * Quita el silencio de las orillas. */
+int    solar_sonido_cargar(int32_t id, const uint8_t *mp3, size_t tam);
+/* Toca el sonido sin bloquear (volumen 0–1). ENOTSUP si no hay salida de
+ * audio (ni PulseAudio/PipeWire ni ALSA). */
+int    solar_sonido_reproducir(int32_t id, float volumen);
+double solar_sonido_duracion(int32_t id);
+/* "PulseAudio / PipeWire", "ALSA" o "" si no hay. */
+const char *solar_sonido_salida(void);
+
+/* ===================================================================== */
+/*  Tipos de archivo y programas ("Abrir con…")                          */
+/* ===================================================================== */
+
+/* Tipo MIME de un archivo ("text/x-c++src", "inode/directory"…). */
+int solar_mime_de(const char *ruta, char *mime, size_t tam);
+
+enum {
+    SOLAR_AFINIDAD_OTRO = 0,      /* no dice abrir este tipo */
+    SOLAR_AFINIDAD_PADRE = 1,     /* abre un tipo más general (text/plain) */
+    SOLAR_AFINIDAD_EXACTA = 2,    /* dice abrir exactamente este tipo */
+    SOLAR_AFINIDAD_DEFECTO = 3,   /* es el predeterminado (mimeapps.list) */
+};
+
+typedef struct {
+    char   *id;            /* "nvim.desktop" */
+    char   *archivo;       /* ruta del .desktop */
+    char   *nombre;        /* "Neovim" (en tu idioma si el lanzador lo trae) */
+    char   *descripcion;   /* "Editor de texto" o NULL */
+    char   *icono;         /* nombre del ícono o ruta, o NULL */
+    char   *categorias;    /* "Development;TextEditor;" o NULL */
+    int32_t terminal;      /* se abre dentro de una terminal */
+    int32_t afinidad;      /* SOLAR_AFINIDAD_* */
+} SolarPrograma;
+
+typedef struct {
+    SolarPrograma *programas;
+    size_t         cantidad;
+    char          *mime;   /* tipo del primer archivo */
+} SolarProgramas;
+
+/* Programas para abrir estos archivos, del más adecuado al menos. Con
+ * 'incluir_todos' también vienen los que no dicen abrir ese tipo. */
+int  solar_programas_para(const char *const *rutas, size_t cantidad, int32_t incluir_todos, SolarProgramas *salida);
+void solar_programas_liberar(SolarProgramas *p);
+/* Abre los archivos con el programa (sigue su línea Exec; si es de
+ * terminal usa 'terminal' o la que se detecte). */
+int  solar_programa_lanzar(const SolarPrograma *p, const char *const *rutas, size_t cantidad, const char *terminal);
+/* Lo deja como predeterminado para ese tipo en ~/.config/mimeapps.list. */
+int  solar_programa_predeterminar(const char *id, const char *mime);
 
 #ifdef __cplusplus
 }
