@@ -36,7 +36,7 @@ $(BIN):
 instalar: $(BIN)
 	install -Dm755 $(BIN) $(BINDIR)/solar
 	install -Dm644 recursos/solar.desktop $(APPSDIR)/solar.desktop
-	install -Dm644 recursos/solar.svg $(ICONDIR)/scalable/apps/solar.svg
+	install -Dm644 recursos/iconos/solar.svg $(ICONDIR)/scalable/apps/solar.svg
 	for t in $(TAMANOS); do \
 		install -Dm644 recursos/iconos/solar-$$t.png $(ICONDIR)/$${t}x$$t/apps/solar.png; done
 	install -Dm644 config/config.lua $(DATADIR)/config.lua
