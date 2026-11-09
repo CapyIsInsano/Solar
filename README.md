@@ -1,128 +1,147 @@
-<p align="center">
-  <img src="recursos/solar.svg" width="128" alt="Logo de Solar">
-</p>
-
-<h1 align="center">☀ Solar</h1>
+<a id="inicio"></a>
 
 <p align="center">
-  <b>Gestor de archivos para Linux</b><br>
-  Núcleo en C · Interfaz en Rust · Configuración en Lua<br>
-  <sub>v0.1.0-alpha · GPL-3.0</sub>
+  <img src="docs/readme/portada.svg" width="100%" alt="Solar, gestor de archivos para Linux: núcleo en C, interfaz en Rust y configuración en Lua">
 </p>
 
+<p align="center">
+  <b>Un gestor de archivos donde cada carpeta tiene su propio color y logotipo.</b><br>
+  <sub>Tu carpeta <code>Juegos</code> verde con un mando verde oscuro, <code>Proyectos</code> azul con <code>&lt;/&gt;</code>, <code>Escuela</code> amarilla con un birrete…</sub>
+</p>
+
+> [!IMPORTANT]
 > **Solar por ahora es exclusivo de Linux.** El núcleo usa cosas propias de
 > Linux (inotify, `/proc`, `/sys`, udisks2) y no compila en Windows ni macOS.
 
+<table align="center">
+<tr>
+<td align="center" width="16.6%"><a href="#que-trae"><img src="docs/readme/carpetas/que-trae.svg" width="76" alt=""><br><sub><b>Qué trae</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#capturas"><img src="docs/readme/carpetas/capturas.svg" width="76" alt=""><br><sub><b>Capturas</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#instalar"><img src="docs/readme/carpetas/instalar.svg" width="76" alt=""><br><sub><b>Instalar</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#uso"><img src="docs/readme/carpetas/uso.svg" width="76" alt=""><br><sub><b>Uso rápido</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#configuracion"><img src="docs/readme/carpetas/configuracion.svg" width="76" alt=""><br><sub><b>Configuración</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#temas"><img src="docs/readme/carpetas/temas.svg" width="76" alt=""><br><sub><b>Temas</b></sub></a></td>
+</tr>
+<tr>
+<td align="center" width="16.6%"><a href="#actualizar"><img src="docs/readme/carpetas/actualizar.svg" width="76" alt=""><br><sub><b>Actualizar</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#desinstalar"><img src="docs/readme/carpetas/desinstalar.svg" width="76" alt=""><br><sub><b>Desinstalar</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#como-esta-hecho"><img src="docs/readme/carpetas/como-esta-hecho.svg" width="76" alt=""><br><sub><b>Cómo está hecho</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#pruebas"><img src="docs/readme/carpetas/pruebas.svg" width="76" alt=""><br><sub><b>Pruebas</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#licencia"><img src="docs/readme/carpetas/licencia.svg" width="76" alt=""><br><sub><b>Licencia</b></sub></a></td>
+<td align="center" width="16.6%"><a href="#creditos"><img src="docs/readme/carpetas/creditos.svg" width="76" alt=""><br><sub><b>Créditos</b></sub></a></td>
+</tr>
+</table>
+
+<p align="center"><sub>12 carpetas · haz clic en una para abrirla</sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="que-trae"></a>
+
+## <img src="docs/readme/carpetas/que-trae.svg" width="34" align="top" alt=""> Qué trae
+
+<sub>⌂ Solar › <b>Qué trae</b></sub>
+
+**Carpetas a tu gusto**
+
+- Clic derecho → **Color de carpeta**: 21 colores listos, o el tuyo con
+  selector y código hex.
+- Clic derecho → **Logotipo**: 54 (mando, música, código, cámara, chip,
+  cohete, sol…) o un texto/emoji, con su propio color.
+- Todas las carpetas se dibujan con la forma del logo de Solar. El estilo
+  sigue a la carpeta si la renombras o la mueves, y viaja con las copias.
+
+**Se ve como tú quieras**
+
+- **9 temas** con nombres de astros: Sol, Aurora, Eclipse, Nebulosa, Venus,
+  Neptuno, Marte, Mercurio y Luna, y los tuyos en Lua.
+- **Fondo transparente** con opacidad, tamaño de la interfaz y fuente.
+- Barra de ubicación **arriba o abajo**, barra lateral **izquierda o derecha**.
+- **Animaciones** suaves y **efectos de sonido** (los de Capyro). Las dos se
+  pueden apagar.
+
+**Hace lo que esperas de un gestor de archivos**
+
+- Cuadrícula y lista, orden natural (la ñ va después de la n), ocultos,
+  búsqueda al escribir, selección con banda y teclado.
+- Copiar, mover y pegar con progreso y conflictos; **papelera** compatible
+  con la de tu escritorio; arrastrar y soltar.
+- **Memorias USB** en la barra lateral: montar con un clic y expulsar seguro.
+- **Abrir con** los programas que tienes (Neovim, VSCodium, VS Code,
+  Mousepad…), con su ícono, incluidos los de Flatpak.
+- **Atajos de teclado** configurables, **Lugares** editables y la carpeta se
+  actualiza sola cuando algo cambia.
+- **Se actualiza desde GitHub** sin desinstalar, y su logo sale en la barra
+  de tareas (también en Wayland).
+
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="capturas"></a>
+
+## <img src="docs/readme/carpetas/capturas.svg" width="34" align="top" alt=""> Capturas
+
+<sub>⌂ Solar › <b>Capturas</b></sub>
+
+**En un escritorio de verdad:** Gentoo con Niri, fondo transparente,
+carpetas con color y logotipo, una SSD en *Dispositivos* y el logo en el dock.
+
 <p align="center">
-  <img src="docs/capturas/principal.png" width="820" alt="Solar mostrando carpetas de colores con logotipos">
+  <img src="docs/capturas/escritorio-niri.png" width="100%" alt="Solar en Gentoo con Niri, con fondo transparente y su ícono en el dock">
 </p>
 
-Solar es un gestor de archivos ligero y bonito, donde **cada carpeta puede tener
-su propio color y logotipo**: tu carpeta `Juegos` puede ser verde con un mando
-verde oscuro, `Proyectos` azul con `</>`, `Escuela` amarilla con un birrete…
-Todas las carpetas se dibujan con la misma forma del logo de Solar.
-
-### En un escritorio de verdad
-
-Solar en Gentoo con Niri: fondo transparente, carpetas con color y logotipo,
-una memoria SSD en *Dispositivos* y su logo en el dock.
-
 <p align="center">
-  <img src="docs/capturas/escritorio-niri.png" width="820" alt="Solar en Gentoo con Niri, con fondo transparente y su ícono en el dock">
+  <img src="docs/capturas/principal.png" width="100%" alt="Solar mostrando carpetas de colores con logotipos">
 </p>
 
-## Qué trae la v0.1.0 alpha
+<table>
+<tr>
+<td width="50%"><img src="docs/capturas/clic-derecho.png" alt="Clic derecho con los colores de carpeta"><p align="center"><sub>Clic derecho → <b>Color de carpeta</b></sub></p></td>
+<td width="50%"><img src="docs/capturas/logotipos.png" alt="Los 54 logotipos"><p align="center"><sub>Clic derecho → <b>Logotipo</b></sub></p></td>
+</tr>
+<tr>
+<td><img src="docs/capturas/personalizar.png" alt="Personalizar la carpeta Juegos"><p align="center"><sub><b>Personalizar carpeta</b>: verde con un mando verde oscuro</sub></p></td>
+<td><img src="docs/capturas/abrir-con.png" alt="Abrir con en un archivo .cpp"><p align="center"><sub><b>Abrir con</b> en un <code>.cpp</code></sub></p></td>
+</tr>
+<tr>
+<td><img src="docs/capturas/lista-clara.png" alt="Vista de lista con el tema Aurora"><p align="center"><sub>Vista de lista con el tema claro <b>Aurora</b></sub></p></td>
+<td><img src="docs/capturas/transparencia.png" alt="Fondo transparente con compositor"><p align="center"><sub><b>Fondo transparente</b> al 75 % con un compositor</sub></p></td>
+</tr>
+<tr>
+<td><img src="docs/capturas/ajustes-temas.png" alt="Ajustes: temas"><p align="center"><sub>Ajustes → <b>Temas</b></sub></p></td>
+<td><img src="docs/capturas/ajustes-ventana.png" alt="Ajustes: ventana, sonido y animaciones"><p align="center"><sub>Ajustes → <b>Ventana, sonido y animaciones</b></sub></p></td>
+</tr>
+<tr>
+<td><img src="docs/capturas/ajustes-distribucion.png" alt="Ajustes: distribución"><p align="center"><sub>Ajustes → <b>Distribución</b></sub></p></td>
+<td><img src="docs/capturas/ajustes-atajos.png" alt="Ajustes: atajos"><p align="center"><sub>Ajustes → <b>Atajos</b></sub></p></td>
+</tr>
+<tr>
+<td><img src="docs/capturas/actualizaciones.png" alt="Ajustes: actualizaciones"><p align="center"><sub>Ajustes → <b>Actualizaciones</b></sub></p></td>
+<td></td>
+</tr>
+</table>
 
-- **Carpetas personalizadas**: clic derecho → *Color de carpeta* (21 colores
-  listos o uno personalizado con selector y código hex) y *Logotipo* (54
-  logotipos: mando, música, código, cámara, chip, cohete, sol…, o un texto o
-  emoji). El logotipo también tiene color propio. El estilo sigue a la carpeta
-  si la renombras o la mueves desde Solar, y viaja con las copias.
-- **9 temas de colores** (Sol, Aurora, Eclipse, Nebulosa, Venus, Neptuno,
-  Marte, Mercurio, Luna) y **temas propios en Lua**, que pueden heredar de otro.
-  También puedes crear uno desde Ajustes con selectores de color.
-- **Fondo transparente** con opacidad ajustable (necesita un compositor).
-- **Barra de ubicación arriba o abajo**, barra lateral a la **izquierda o
-  derecha** (o escondida). Clic en un pedazo de la ruta para ir ahí, o en el
-  espacio vacío (o `Ctrl+L`) para escribir una ruta.
-- **Lugares** editables (nombre, ruta, ícono y orden) y **memorias USB / tarjetas
-  SD** en la barra lateral con su espacio libre, montar con un clic y expulsar
-  con seguridad. Opcional: discos internos (como la partición de Windows).
-- **Atajos de teclado configurables** desde Ajustes (haz clic y presiona la
-  combinación) o en `config.lua`. Avisa si un atajo ya lo usa otra acción.
-- **Efectos de sonido** (los mismos de Capyro): al abrir Solar, al hacer clic,
-  al terminar de copiar, en errores, al mandar a la papelera… con volumen y
-  un interruptor en *Ajustes → Apariencia*.
-- **Actualizar desde GitHub** sin desinstalar: *Ajustes → Actualizaciones*
-  busca versiones nuevas en el repo, las descarga (o las compila si la
-  versión no trae binario) y reemplaza el programa; solo falta reiniciar.
-  También revisa sola una vez al día (se puede apagar).
-- **Borrar caché** (descargas y compilaciones de actualizaciones).
-- **Abrir con… de verdad**: Solar detecta los programas instalados (sus
-  lanzadores `.desktop`, incluidos los de Flatpak) y te ofrece los que
-  sirven para cada archivo: un `.cpp` → Neovim, VSCodium, Visual Studio
-  Code, Mousepad… con su ícono. Los de terminal (Neovim, Vim) se abren en tu
-  terminal, y puedes dejar uno como predeterminado.
-- **Logo de Solar en la barra de tareas**, también en Wayland (Niri,
-  Hyprland, KDE, GNOME) aunque lo corras sin instalar.
-- **Animaciones**: al abrir carpetas, al pasar el mouse, en menús, ventanas,
-  avisos y al cambiar de tema (se pueden apagar).
-- Lo fundamental de un gestor de archivos: cuadrícula y lista, orden natural
-  (`foto2` antes de `foto10`, sin importar acentos), selección con Ctrl, Shift
-  y con banda, arrastrar y soltar, copiar/cortar/pegar con detección de
-  conflictos (conservar ambos, reemplazar o combinar, omitir), duplicar,
-  renombrar, crear carpetas y archivos, **papelera compatible con
-  freedesktop** (la misma de Nautilus, Dolphin y Thunar; también en memorias
-  USB), restaurar, propiedades con permisos editables y tamaño de carpetas,
-  abrir con…, abrir terminal aquí, búsqueda al escribir, archivos ocultos,
-  barra de estado con espacio libre, operaciones en segundo plano con
-  progreso y cancelar, y la vista se actualiza sola cuando algo cambia.
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
-### Capturas
+<img src="docs/readme/separador.svg" width="100%" alt="">
 
-Clic derecho → *Color de carpeta*, *Logotipo* y *Abrir con*, el diálogo
-*Personalizar carpeta*, la vista de lista con el tema claro Aurora, los Ajustes
-(temas, ventana y sonido, actualizaciones, distribución y atajos) y el fondo
-transparente con un compositor:
+<a id="instalar"></a>
 
-<p align="center">
-  <img src="docs/capturas/clic-derecho.png" width="49%" alt="Menú del clic derecho con los colores de carpeta">
-  <img src="docs/capturas/logotipos.png" width="49%" alt="Menú del clic derecho con los 54 logotipos">
-  <img src="docs/capturas/abrir-con.png" width="49%" alt="Abrir con: Neovim, Vim, Mousepad, Visual Studio Code, VSCodium…">
-  <img src="docs/capturas/personalizar.png" width="49%" alt="Personalizar la carpeta Juegos: verde con un mando verde oscuro">
-  <img src="docs/capturas/lista-clara.png" width="49%" alt="Vista de lista con el tema Aurora">
-  <img src="docs/capturas/actualizaciones.png" width="49%" alt="Ajustes: actualizaciones desde GitHub y borrar caché">
-  <img src="docs/capturas/ajustes-ventana.png" width="49%" alt="Ajustes: fondo transparente, opacidad, tamaño, fuente, sonido y animaciones">
-  <img src="docs/capturas/transparencia.png" width="49%" alt="Fondo transparente al 75 % sobre un fondo de pantalla, con compositor">
-  <img src="docs/capturas/ajustes-temas.png" width="49%" alt="Ajustes: temas de colores">
-  <img src="docs/capturas/ajustes-distribucion.png" width="49%" alt="Ajustes: barra de ubicación arriba o abajo y barra lateral">
-  <img src="docs/capturas/ajustes-atajos.png" width="49%" alt="Ajustes: atajos de teclado">
-</p>
+## <img src="docs/readme/carpetas/instalar.svg" width="34" align="top" alt=""> Instalar
 
-## Cómo está hecho
+<sub>⌂ Solar › <b>Instalar</b></sub>
 
-| Parte | Lenguaje | Qué hace |
-|---|---|---|
-| `nucleo/` | **C11** | Listar y ordenar carpetas, tipos de archivo, copiar/mover/eliminar con progreso, papelera, memorias USB (sysfs + mountinfo + udisks2), vigilar cambios (inotify), recordar colores y logotipos, tipos MIME y programas instalados (Abrir con), efectos de sonido (minimp3 + PulseAudio/PipeWire o ALSA), y leer/escribir la configuración y los temas con **Lua 5.4** embebido. |
-| `src/` | **Rust** (egui) | Toda la interfaz: ventana, vistas, menús, diálogos, Ajustes y el dibujo vectorial de carpetas y archivos. Llama al núcleo por FFI. |
-| `~/.config/solar/*.lua` | **Lua** | Tu configuración (`config.lua`) y tus temas (`temas/*.lua`). |
+Necesitas **Rust 1.95 o más nuevo**, un compilador de C (gcc o clang) y
+`git`. Para usarlo al 100 %: **udisks2** (memorias USB sin root),
+**shared-mime-info** (Abrir con), **curl** (actualizaciones), PipeWire,
+PulseAudio o ALSA (sonidos) y una terminal. Usa OpenGL 3: Mesa sirve,
+incluso en GPUs viejitas.
 
-`cargo build` compila todo junto: `build.rs` compila el núcleo en C (y Lua
-5.4, que viene incluido) y lo enlaza con la interfaz. No necesitas tener Lua
-instalado.
+**1. Lo necesario según tu distro**
 
-## Instalación paso a paso
-
-Necesitas **Rust 1.95 o más nuevo**, un compilador de C (gcc o clang) y `git`.
-Para usar Solar al 100 % conviene tener también **udisks2** (montar memorias
-USB sin ser root), **shared-mime-info** (saber qué programas abren cada
-archivo; casi siempre ya está), **curl** (actualizaciones), PipeWire,
-PulseAudio o ALSA (sonidos; se cargan solos si están) y una terminal. Solar
-usa OpenGL 3 (Mesa sirve, incluso en GPUs viejitas).
-
-### 1. Instala lo necesario
-
-**Gentoo**
+<details open>
+<summary><b>Gentoo</b></summary>
 
 ```sh
 sudo emerge --ask --noreplace virtual/rust dev-vcs/git sys-fs/udisks x11-misc/xdg-utils \
@@ -131,132 +150,135 @@ rustc --version     # tiene que decir 1.95 o más nuevo
 ```
 
 `virtual/rust` se conforma con `dev-lang/rust` o con `dev-lang/rust-bin`
-(el precompilado, mucho más rápido de instalar). Si tu versión es más vieja,
-actualiza el slot o usa `dev-util/rustup`.
+(el precompilado, mucho más rápido de instalar).
+</details>
 
-**Arch / Manjaro / EndeavourOS**
+<details>
+<summary><b>Arch / Manjaro / EndeavourOS</b></summary>
 
 ```sh
-sudo pacman -S --needed rust base-devel git udisks2 xdg-utils
+sudo pacman -S --needed rust base-devel git udisks2 xdg-utils curl
 ```
+</details>
 
-**Debian / Ubuntu / Linux Mint** (el Rust de los repos suele ser viejo; usa rustup)
+<details>
+<summary><b>Debian / Ubuntu / Linux Mint</b> (el Rust de los repos suele ser viejo: usa rustup)</summary>
 
 ```sh
 sudo apt install build-essential git curl udisks2 xdg-utils libgl1
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 ```
+</details>
 
-**Fedora**
+<details>
+<summary><b>Fedora</b></summary>
 
 ```sh
-sudo dnf install rust cargo gcc git udisks2 xdg-utils
+sudo dnf install rust cargo gcc git udisks2 xdg-utils curl
 ```
+</details>
 
-**Alpine / Void / otras**: instala Rust (≥ 1.95), un compilador de C, git,
-udisks2 y xdg-utils con tu gestor de paquetes. (Sin probar todavía en musl.)
+<details>
+<summary><b>Otras</b> (Alpine, Void…)</summary>
 
-### 2. Clona y compila
+Instala Rust (≥ 1.95), un compilador de C, git, udisks2, xdg-utils y curl
+con tu gestor de paquetes. En musl todavía no está probado.
+</details>
+
+**2. Clona y compila**
 
 ```sh
 git clone https://github.com/CapyIsInsano/Solar.git
 cd Solar
-make            # es lo mismo que: cargo build --release
+make                      # = cargo build --release (la primera vez tarda unos minutos)
+./target/release/solar    # pruébalo sin instalar
 ```
 
-La primera vez tarda unos minutos (compila egui y Lua). El programa queda en
-`target/release/solar`; puedes probarlo sin instalar:
+**3. Instala**
 
 ```sh
-./target/release/solar
+sudo make instalar                  # en /usr/local, para todos
+make instalar PREFIX=~/.local       # o solo para ti (con ~/.local/bin en el PATH)
 ```
 
-### 3. Instala
+Instala el programa, el lanzador y el ícono, así que Solar aparece en tu menú
+de aplicaciones y con su logo en el dock.
 
-```sh
-sudo make instalar                  # en /usr/local (todos los usuarios)
-# o, sin sudo, solo para ti:
-make instalar PREFIX=~/.local       # asegúrate de tener ~/.local/bin en el PATH
-```
-
-Esto instala el programa, el lanzador (`solar.desktop`) y el ícono, así que
-Solar aparece en tu menú de aplicaciones (en Wayland el ícono sale del
-lanzador). Para quitarlo: `sudo make desinstalar` (o con el mismo `PREFIX`).
-
-**¿Quieres usar el Lua de tu distro?**
-
-```sh
-cargo build --release --no-default-features --features lua-sistema
-```
-
-(Busca `lua5.4`, `lua54` o `lua` con pkg-config; en Gentoo es `dev-lang/lua:5.4`.)
-
-### 4. Actualizar
-
-Desde Solar: *Ajustes → Actualizaciones → Buscar actualizaciones →
-Actualizar ahora* y luego *Reiniciar Solar*. No hay que desinstalar nada.
-Si la versión nueva no trae binario, Solar la compila con tu `cargo` (la
-primera vez tarda unos minutos; lo compilado se guarda en `~/.cache/solar`
-y las siguientes son más rápidas). Si instalaste con `sudo`, te pide la
-contraseña con pkexec. *Borrar caché* libera ese espacio.
-
-A mano también se puede: `git pull && make && sudo make instalar`.
-
-### 5. Hacerlo tu gestor de archivos (opcional)
+**4. Hazlo tu gestor de archivos** (opcional)
 
 ```sh
 xdg-mime default solar.desktop inode/directory
 ```
 
-## Uso rápido
+<details>
+<summary>¿Quieres usar el Lua de tu distro en vez del incluido?</summary>
+
+```sh
+cargo build --release --no-default-features --features lua-sistema
+```
+
+Busca `lua5.4`, `lua54` o `lua` con pkg-config (en Gentoo: `dev-lang/lua:5.4`).
+</details>
+
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="uso"></a>
+
+## <img src="docs/readme/carpetas/uso.svg" width="34" align="top" alt=""> Uso rápido
+
+<sub>⌂ Solar › <b>Uso rápido</b></sub>
 
 | Hacer | Cómo |
 |---|---|
-| Personalizar una carpeta | Clic derecho → *Color de carpeta* / *Logotipo* / *Personalizar carpeta…* (`Ctrl+E`) |
-| Abrir con otro programa | Clic derecho → *Abrir con* (o *Otro programa…* para buscar y dejar uno predeterminado) |
-| Actualizar Solar | *Ajustes → Actualizaciones* |
-| Sonidos y animaciones | *Ajustes → Apariencia* (abajo) |
-| Escribir una ruta | `Ctrl+L` o clic en el espacio vacío de la barra de ubicación |
-| Buscar en la carpeta | Empieza a escribir, o `Ctrl+F` |
-| Ver ocultos | `Ctrl+H` |
-| Cuadrícula / lista | `Ctrl+1` / `Ctrl+2` |
-| Íconos más grandes o chicos | `Ctrl` + rueda del mouse, `Ctrl+Plus` / `Ctrl+Minus` |
-| Nueva carpeta / archivo | `Ctrl+Shift+N` / `Ctrl+Alt+N` |
-| Renombrar | `F2` |
-| Papelera / eliminar para siempre | `Supr` / `Shift+Supr` |
-| Copiar, cortar, pegar, duplicar | `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Shift+D` |
-| Propiedades | `Alt+Enter` |
-| Añadir a Lugares | `Ctrl+D` |
-| Terminal aquí | `F4` |
-| Barra lateral | `F9` |
-| Ajustes | `Ctrl+,` |
-| Atrás / adelante / subir | `Alt+←` / `Alt+→` / `Alt+↑` (también `Retroceso` y los botones laterales del mouse) |
-| Quitar la selección, cerrar menús o Ajustes | `Esc` |
+| Personalizar una carpeta | Clic derecho → <i>Color de carpeta</i> / <i>Logotipo</i>, o <kbd>Ctrl</kbd> + <kbd>E</kbd> |
+| Abrir con otro programa | Clic derecho → <i>Abrir con</i> |
+| Escribir una ruta | <kbd>Ctrl</kbd> + <kbd>L</kbd> o clic en el espacio vacío de la barra |
+| Buscar en la carpeta | Empieza a escribir, o <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Ver ocultos | <kbd>Ctrl</kbd> + <kbd>H</kbd> |
+| Cuadrícula / lista | <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Íconos más grandes o chicos | <kbd>Ctrl</kbd> + rueda, <kbd>Ctrl</kbd> + <kbd>Plus</kbd> / <kbd>Ctrl</kbd> + <kbd>Minus</kbd> |
+| Nueva carpeta / archivo | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> / <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>N</kbd> |
+| Renombrar | <kbd>F2</kbd> |
+| Papelera / eliminar para siempre | <kbd>Supr</kbd> / <kbd>Shift</kbd> + <kbd>Supr</kbd> |
+| Copiar, cortar, pegar, duplicar | <kbd>Ctrl</kbd> + <kbd>C</kbd> <kbd>Ctrl</kbd> + <kbd>X</kbd> <kbd>Ctrl</kbd> + <kbd>V</kbd> <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> |
+| Propiedades | <kbd>Alt</kbd> + <kbd>Enter</kbd> |
+| Añadir a Lugares | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Terminal aquí | <kbd>F4</kbd> |
+| Barra lateral | <kbd>F9</kbd> |
+| Ajustes | <kbd>Ctrl</kbd> + <kbd>,</kbd> |
+| Atrás / adelante / subir | <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>Alt</kbd> + <kbd>→</kbd> <kbd>Alt</kbd> + <kbd>↑</kbd> (o <kbd>Retroceso</kbd> y los botones del mouse) |
+| Quitar la selección, cerrar menús o Ajustes | <kbd>Esc</kbd> |
 
 Arrastra archivos sobre una carpeta, un lugar, una memoria USB o un pedazo de
-la barra de ubicación para **moverlos**; con `Ctrl` se **copian**. Entre
-discos distintos se copian siempre. Suéltalos en *Papelera* para tirarlos.
+la barra de ubicación para **moverlos**; con <kbd>Ctrl</kbd> se **copian**.
+Suéltalos en *Papelera* para tirarlos. Al copiar, Solar también deja las
+rutas como texto en el portapapeles: puedes pegarlas en una terminal.
 
-Al copiar, Solar también deja las rutas como texto en el portapapeles: puedes
-pegarlas en una terminal. Y al revés: si copias rutas (o archivos desde otro
-gestor) y pegas en Solar, las copia ahí.
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
-## Configuración
+<img src="docs/readme/separador.svg" width="100%" alt="">
 
-| Archivo | Para qué |
-|---|---|
-| `~/.config/solar/config.lua` | Todos los ajustes. Solar lo crea la primera vez y lo reescribe cuando cambias algo en Ajustes. |
-| `~/.config/solar/temas/*.lua` | Tus temas de colores (Solar nunca los reescribe). |
-| `~/.local/share/solar/carpetas.tsv` | El color y logotipo de cada carpeta. |
-| `~/.config/mimeapps.list` | El programa predeterminado de cada tipo de archivo (el mismo que usan los demás programas; Solar lo escribe al marcar «Usar siempre»). |
-| `~/.cache/solar/` | Descargas y compilaciones de actualizaciones. Se puede borrar sin miedo (*Ajustes → Actualizaciones → Borrar caché*). |
-| `~/.local/share/applications/solar.desktop` | Solo si corres Solar sin instalar: el lanzador que usa la barra de tareas para mostrar el logo. Se quita solo si después instalas con `make instalar`. |
+<a id="configuracion"></a>
 
-`config.lua` es Lua de verdad, en un entorno seguro (sin `io`, `os.execute`
-ni `require`, con límite de memoria y de tiempo para que un bucle infinito no
-congele Solar). Si algo no se entiende, Solar te dice qué fue al abrir y usa
-el valor por defecto. Hay un ejemplo con todas las opciones explicadas en
+## <img src="docs/readme/carpetas/configuracion.svg" width="34" align="top" alt=""> Configuración
+
+<sub>⌂ Solar › <b>Configuración</b></sub>
+
+| | Archivo | Para qué |
+|:-:|---|---|
+| <img src="docs/readme/archivos/lua.svg" width="20" alt=""> | `~/.config/solar/config.lua` | Todos los ajustes. Solar lo crea la primera vez y lo reescribe cuando cambias algo en Ajustes. |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | `~/.config/solar/temas/` | Tus temas de colores (Solar nunca los reescribe). |
+| <img src="docs/readme/archivos/texto.svg" width="20" alt=""> | `~/.local/share/solar/carpetas.tsv` | El color y logotipo de cada carpeta. |
+| <img src="docs/readme/archivos/texto.svg" width="20" alt=""> | `~/.config/mimeapps.list` | El programa predeterminado de cada tipo de archivo (el mismo de los demás programas). |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | `~/.cache/solar/` | Descargas y compilaciones de actualizaciones. Se puede borrar sin miedo. |
+
+`config.lua` es Lua de verdad, en un entorno seguro: sin `io`, `os.execute`
+ni `require`, y con límite de memoria y de tiempo para que un bucle infinito
+no congele Solar. Si algo no se entiende, Solar te dice qué fue y usa el valor
+por defecto. Todas las opciones están explicadas en
 [`config/config.lua`](config/config.lua).
 
 ```lua
@@ -266,11 +288,20 @@ return {
   opacidad = 0.8,
   barra_ubicacion = "abajo",
   barra_lateral = "derecha",
+  sonidos = true,
   atajos = { terminal = "Ctrl+T", eliminar = false },
 }
 ```
 
-### Temas en Lua
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="temas"></a>
+
+## <img src="docs/readme/carpetas/temas.svg" width="34" align="top" alt=""> Temas
+
+<sub>⌂ Solar › <b>Temas</b></sub>
 
 Crea un archivo en `~/.config/solar/temas/`, por ejemplo `bosque.lua`:
 
@@ -285,101 +316,190 @@ return {
 }
 ```
 
-Colores disponibles: `fondo`, `superficie`, `elevado`, `borde`, `texto`,
-`texto_tenue`, `acento`, `texto_acento`, `seleccion`, `peligro`, `exito`,
-`aviso` y `carpeta`. Mira [`config/temas/ejemplo.lua`](config/temas/ejemplo.lua).
-También puedes hacer uno desde *Ajustes → Apariencia → Crear un tema a partir
-de este…*, que lo guarda como `.lua`.
+Colores: `fondo`, `superficie`, `elevado`, `borde`, `texto`, `texto_tenue`,
+`acento`, `texto_acento`, `seleccion`, `peligro`, `exito`, `aviso` y
+`carpeta`. También puedes hacer uno desde *Ajustes → Apariencia → Crear un
+tema a partir de este…*. Ejemplo completo en
+[`config/temas/ejemplo.lua`](config/temas/ejemplo.lua).
 
-## Estructura del proyecto
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="actualizar"></a>
+
+## <img src="docs/readme/carpetas/actualizar.svg" width="34" align="top" alt=""> Actualizar
+
+<sub>⌂ Solar › <b>Actualizar</b></sub>
+
+Desde Solar: *Ajustes → Actualizaciones → Buscar actualizaciones →
+Actualizar ahora*, y luego *Reiniciar Solar*. No hay que desinstalar nada.
+Solar compila la versión nueva con tu `cargo` (lo compilado se guarda en
+`~/.cache/solar`, así que las siguientes son más rápidas). Si lo instalaste
+con `sudo`, te pide la contraseña con pkexec. *Borrar caché* libera ese
+espacio.
+
+A mano también se puede: `git pull && make && sudo make instalar`.
+
+**¿Cómo se entera Solar de que hay algo nuevo?**
+
+- **Commits nuevos:** con solo hacer `git push` a `main`. Solar sabe de qué
+  commit salió (`solar --version` lo muestra) y te ofrece *«Hay 3 commits
+  nuevos en main»* con sus mensajes. Si lo compilaste con cambios tuyos que
+  no están en GitHub, no te ofrece nada.
+- **Versiones publicadas:**
+  1. Sube la versión en `Cargo.toml` y en `nucleo/include/solar.h`, y
+     escribe qué trae en `CHANGELOG.md`.
+  2. `git commit -am "Solar v0.2.0-alpha" && git push`
+  3. `git tag v0.2.0-alpha && git push origin v0.2.0-alpha`
+  4. En GitHub → *Releases → Draft a new release*, elige esa etiqueta y pega
+     las notas: Solar las muestra en *Qué trae*.
+
+  Orden de versiones: `0.2.0-alpha < 0.2.0-beta < 0.2.0-rc1 < 0.2.0`.
+
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="desinstalar"></a>
+
+## <img src="docs/readme/carpetas/desinstalar.svg" width="34" align="top" alt=""> Desinstalar
+
+<sub>⌂ Solar › <b>Desinstalar</b></sub>
+
+Desde la carpeta del código (usa el mismo `PREFIX` con el que instalaste):
+
+```sh
+sudo make desinstalar               # o: make desinstalar PREFIX=~/.local
 ```
-Solar/
-├── nucleo/                  núcleo en C
-│   ├── include/solar.h      API pública del núcleo
-│   ├── src/                 listado, operaciones, papelera, dispositivos_linux,
-│   │                        vigilante_linux, carpetas, config, temas, lua_seguro,
-│   │                        programas (MIME y .desktop), sonido, util
-│   ├── terceros/minimp3/    decodificador de MP3 (CC0)
-│   ├── pruebas/pruebas.c    218 revisiones (con AddressSanitizer + UBSan)
-│   └── Makefile             para trabajar solo en el núcleo
-├── src/                     interfaz en Rust
-│   ├── ffi.rs, nucleo.rs    enlaces con el núcleo (crudos y seguros)
-│   ├── app.rs               estado, navegación y acciones
-│   ├── vista.rs             cuadrícula, lista, selección, menús del clic derecho
-│   ├── barras.rs            barra superior, ubicación, estado y lateral
-│   ├── dialogos.rs          renombrar, propiedades, personalizar carpeta…
-│   ├── ajustes.rs           ventana de Ajustes
-│   ├── iconos.rs            carpetas y archivos vectoriales (forma del logo)
-│   ├── tema.rs              temas → egui, colores en OKLab
-│   ├── actualizar.rs        buscar en GitHub, compilar y reemplazar el programa
-│   ├── escritorio.rs        ícono y lanzador para la barra de tareas
-│   ├── sonido.rs            efectos de sonido
-│   ├── iconos_programas.rs  íconos de los programas (PNG y SVG)
-│   └── atajos.rs, tareas.rs, formato.rs, fuentes.rs, ui_util.rs
-├── config/                  ejemplos de config.lua y de tema
-├── recursos/                logo, íconos, sonidos y solar.desktop
-├── build.rs                 compila el núcleo y Lua
-└── Makefile                 make / make instalar / make pruebas
+
+Eso quita el programa, el lanzador, los íconos y los ejemplos. **Tu
+configuración se queda**, por si vuelves. Para borrar todo rastro:
+
+```sh
+rm -rf ~/.config/solar ~/.local/share/solar ~/.cache/solar
+rm -f ~/.local/share/applications/solar.desktop \
+      ~/.local/share/icons/hicolor/*/apps/solar.png \
+      ~/.local/share/icons/hicolor/scalable/apps/solar.svg
 ```
 
-## Publicar cambios
+<details>
+<summary>¿Ya no tienes la carpeta del código?</summary>
 
-Solar se entera de dos formas de que hay algo nuevo en GitHub:
+```sh
+sudo rm -f /usr/local/bin/solar /usr/local/share/applications/solar.desktop
+sudo rm -f /usr/local/share/icons/hicolor/*/apps/solar.png \
+           /usr/local/share/icons/hicolor/scalable/apps/solar.svg
+sudo rm -rf /usr/local/share/solar
+```
+</details>
 
-**Commits nuevos (lo más fácil).** Con solo hacer `git push` a la rama
-principal (`main`), Solar ve que tu último commit es distinto del que tiene
-y ofrece *«Hay 3 commits nuevos en main»* con sus mensajes. Para eso, Solar
-recuerda de qué commit salió: lo toma de `git rev-parse HEAD` al compilar
-desde un clon, o lo anota él mismo al actualizarse. Si compilaste desde un
-`.tar.gz` sin git, la primera vez te ofrece lo último de `main`.
+Si era tu gestor de archivos predeterminado, regresa al de antes, por ejemplo
+`xdg-mime default thunar.desktop inode/directory`.
 
-**Versiones publicadas.** Para una versión con nombre:
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
-1. Sube la versión en `Cargo.toml` (`version = "0.2.0-alpha"`) y en
-   `nucleo/include/solar.h` (`SOLAR_VERSION`), y escribe qué trae en
-   `CHANGELOG.md`.
-2. `git commit -am "Solar v0.2.0-alpha" && git push`
-3. `git tag v0.2.0-alpha && git push origin v0.2.0-alpha`
-4. (Recomendado) En GitHub → *Releases → Draft a new release*, elige esa
-   etiqueta y pega las notas: Solar las muestra en *Qué trae*. Si le adjuntas
-   un binario llamado algo como `solar-linux-x86_64.tar.gz` (con el
-   ejecutable `solar` dentro), Solar lo descarga en vez de compilar.
+<img src="docs/readme/separador.svg" width="100%" alt="">
 
-Solar compara versiones como `0.2.0-alpha < 0.2.0-beta < 0.2.0-rc1 < 0.2.0`.
+<a id="como-esta-hecho"></a>
 
-## Pruebas
+## <img src="docs/readme/carpetas/como-esta-hecho.svg" width="34" align="top" alt=""> Cómo está hecho
+
+<sub>⌂ Solar › <b>Cómo está hecho</b></sub>
+
+| Parte | Lenguaje | Qué hace |
+|---|---|---|
+| `nucleo/` | **C11** | Listar y ordenar, copiar/mover/eliminar con progreso, papelera, memorias USB (sysfs + mountinfo + udisks2), vigilar cambios (inotify), colores y logotipos, tipos MIME y programas (Abrir con), sonidos (minimp3 + PulseAudio/PipeWire o ALSA), y la configuración con **Lua 5.4** embebido. |
+| `src/` | **Rust** (egui) | Toda la interfaz y el dibujo vectorial de carpetas y archivos. Llama al núcleo por FFI. |
+| `~/.config/solar/*.lua` | **Lua** | Tu configuración y tus temas. |
+
+`cargo build` compila todo junto: `build.rs` compila el núcleo en C y Lua
+(viene incluido) y los enlaza con la interfaz.
+
+**Así se ve la carpeta del proyecto:**
+
+| | Nombre | Tipo | Qué hay |
+|:-:|---|---|---|
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/`** | Carpeta | El núcleo en C: listado, copiar/mover, papelera, USB, MIME y programas, sonido, Lua |
+| <img src="docs/readme/archivos/c.svg" width="20" alt=""> | **`nucleo/include/solar.h`** | Encabezado C | La API pública del núcleo |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/pruebas/`** | Carpeta | 218 revisiones con AddressSanitizer + UBSan |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/terceros/minimp3/`** | Carpeta | Decodificador de MP3 (CC0) |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`src/`** | Carpeta | La interfaz en Rust (egui): ventana, vistas, menús, diálogos, Ajustes |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/app.rs`** | Código Rust | Estado, navegación y acciones |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/vista.rs`** | Código Rust | Cuadrícula, lista, selección y clic derecho |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/iconos.rs`** | Código Rust | Carpetas y archivos vectoriales con la forma del logo |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/actualizar.rs`** | Código Rust | Buscar en GitHub, compilar y reemplazar el programa |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`config/`** | Carpeta | Ejemplos de <code>config.lua</code> y de un tema |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`recursos/`** | Carpeta | Logo, íconos, sonidos y <code>solar.desktop</code> |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`docs/`** | Carpeta | Capturas y las imágenes de este README |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`build.rs`** | Código Rust | Compila el núcleo en C y Lua junto con la interfaz |
+| <img src="docs/readme/archivos/toml.svg" width="20" alt=""> | **`Cargo.toml`** | TOML | Versión y dependencias de Rust |
+| <img src="docs/readme/archivos/make.svg" width="20" alt=""> | **`Makefile`** | Makefile | <code>make</code>, <code>make instalar</code>, <code>make pruebas</code> |
+| <img src="docs/readme/archivos/md.svg" width="20" alt=""> | **`CHANGELOG.md`** | Markdown | Qué trae cada versión |
+| <img src="docs/readme/archivos/texto.svg" width="20" alt=""> | **`LICENSE`** | Texto | GPL-3.0 |
+
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="pruebas"></a>
+
+## <img src="docs/readme/carpetas/pruebas.svg" width="34" align="top" alt=""> Pruebas
+
+<sub>⌂ Solar › <b>Pruebas</b></sub>
 
 ```sh
 make pruebas                 # pruebas de Rust (también ejercitan el núcleo)
-make pruebas-nucleo          # núcleo en C con ASan + UBSan (usa el Lua del sistema)
-make -C nucleo pruebas LUA_DIR=/ruta/a/lua-5.4/src   # o con las fuentes de Lua
+make pruebas-nucleo          # núcleo en C con AddressSanitizer + UBSan
 ```
 
-## Limitaciones conocidas (es una alpha)
+**Limitaciones conocidas** (es una alpha):
 
-- Solo Linux por ahora (el núcleo usa inotify, `/proc`, `/sys` y udisks2).
-- No hay pestañas, miniaturas de imágenes ni deshacer todavía.
-- Arrastrar archivos *desde* Solar hacia otros programas no está soportado.
-  Soltar archivos de otros programas *en* Solar funciona en X11; en Wayland
-  aún no (limitación de winit).
-- La transparencia necesita un compositor (Niri, Hyprland, KWin, picom…); en
-  X11 sin compositor la ventana se ve sólida, un poco más oscura.
-- Si `config.lua` tiene lógica (if, variables), Ajustes la convierte en valores
-  fijos la próxima vez que cambies algo desde la ventana.
+- Solo Linux.
+- Todavía no hay pestañas, miniaturas ni deshacer.
+- Arrastrar *desde* Solar hacia otros programas no funciona aún; soltar *en*
+  Solar funciona en X11, en Wayland todavía no.
+- La transparencia necesita un compositor (Niri, Hyprland, KWin, picom…).
+- Si `config.lua` tiene lógica (if, variables), Ajustes la convierte en
+  valores fijos la próxima vez que cambies algo desde la ventana.
 
-## Ideas para las siguientes versiones
+**Ideas para las siguientes versiones:** pestañas, miniaturas, deshacer,
+búsqueda en subcarpetas, panel doble, comprimir/extraer y logotipos con
+imágenes propias.
 
-Pestañas, miniaturas, deshacer, búsqueda en subcarpetas, panel doble,
-comprimir/extraer y más formatos de logotipo (imágenes propias). Windows y
-macOS no están en los planes por ahora.
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
-## Licencia y créditos
+<img src="docs/readme/separador.svg" width="100%" alt="">
 
-Solar es software libre bajo la **GPL-3.0 o posterior** (ver [LICENSE](LICENSE)).
+<a id="licencia"></a>
 
-Hecho por **Arturo (CapyIsInsano)**. Usa [egui/eframe](https://github.com/emilk/egui)
-(MIT/Apache-2.0), [Lua 5.4](https://www.lua.org) (MIT), íconos
-[Phosphor](https://phosphoricons.com) (MIT), [minimp3](https://github.com/lieff/minimp3)
-(CC0) y [resvg](https://github.com/linebender/resvg) (Apache-2.0/MIT). Los
-efectos de sonido son los mismos de Capyro.
+## <img src="docs/readme/carpetas/licencia.svg" width="34" align="top" alt=""> Licencia
+
+<sub>⌂ Solar › <b>Licencia</b></sub>
+
+Solar es software libre bajo la **GPL-3.0 o posterior** ([LICENSE](LICENSE)):
+puedes usarlo, estudiarlo, cambiarlo y compartirlo, y quien distribuya una
+versión modificada tiene que compartir también su código bajo la misma
+licencia.
+
+<p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
+
+<img src="docs/readme/separador.svg" width="100%" alt="">
+
+<a id="creditos"></a>
+
+## <img src="docs/readme/carpetas/creditos.svg" width="34" align="top" alt=""> Créditos
+
+<sub>⌂ Solar › <b>Créditos</b></sub>
+
+Hecho por **Arturo ([CapyIsInsano](https://github.com/CapyIsInsano))**, el
+mismo de [Capyro](https://github.com/CapyIsInsano/Capyro), de donde vienen
+los efectos de sonido.
+
+Usa [egui/eframe](https://github.com/emilk/egui) (MIT/Apache-2.0),
+[Lua 5.4](https://www.lua.org) (MIT), íconos [Phosphor](https://phosphoricons.com)
+(MIT), [minimp3](https://github.com/lieff/minimp3) (CC0) y
+[resvg](https://github.com/linebender/resvg) (Apache-2.0/MIT). Las imágenes de
+este README salen de [`docs/readme/generar.py`](docs/readme/generar.py).
+
+<p align="center"><br><img src="docs/readme/carpetas/solar.svg" width="48" alt=""><br><sub>☀ Solar · v0.1.0-alpha</sub></p>
