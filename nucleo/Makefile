@@ -36,7 +36,7 @@ all: build/libsolar_nucleo.a
 build build/lua build/san:
 	mkdir -p $@
 
-build/%.o: src/%.c src/interno.h include/solar.h | build
+build/%.o: src/%.c src/interno.h include/solar.h terceros/minimp3/minimp3.h | build
 	$(CC) $(CFLAGS) $(LUA_CFLAGS) -c $< -o $@
 
 build/libsolar_nucleo.a: $(OBJ)
@@ -49,7 +49,7 @@ build/san/%.o: src/%.c src/interno.h include/solar.h | build/san
 	$(CC) $(CFLAGS) $(SAN) $(LUA_CFLAGS) -c $< -o $@
 
 build/pruebas: pruebas/pruebas.c $(patsubst src/%.c,build/san/%.o,$(SRC)) $(LUA_OBJ)
-	$(CC) $(CFLAGS) -Wno-format-truncation $(SAN) $(LUA_CFLAGS) $^ $(LUA_LIBS) -lpthread -o $@
+	$(CC) $(CFLAGS) -Wno-format-truncation $(SAN) $(LUA_CFLAGS) $^ $(LUA_LIBS) -lpthread -ldl -o $@
 
 pruebas: build/pruebas
 	./build/pruebas
