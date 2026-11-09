@@ -39,6 +39,20 @@ static const char *const DESCRIPCIONES[SOLAR_COLORES_TOTAL] = {
     "color de carpeta por defecto",
 };
 
+/* Los temas tienen nombres de astros; los nombres de prueba anteriores
+ * siguen funcionando en config.lua y en «base». */
+const char *solar_tema_id_actual(const char *id)
+{
+    static const struct { const char *viejo, *nuevo; } RENOMBRADOS[] = {
+        { "solar", "sol" }, { "amanecer", "aurora" }, { "oceano", "neptuno" },
+        { "océano", "neptuno" }, { "grafito", "mercurio" },
+    };
+    if (!id) return id;
+    for (size_t i = 0; i < SOLAR_LEN(RENOMBRADOS); i++)
+        if (!strcmp(id, RENOMBRADOS[i].viejo)) return RENOMBRADOS[i].nuevo;
+    return id;
+}
+
 const char *solar_color_clave(int indice)
 {
     if (indice < 0 || indice >= SOLAR_COLORES_TOTAL) return "";
@@ -54,21 +68,21 @@ typedef struct {
 
 /*                       fondo     superf.   elevado   borde     texto     tenue     acento    t.acento  selecc.   peligro   éxito     aviso     carpeta */
 static const TemaIntegrado INTEGRADOS[] = {
-    { "solar", "Solar", 1,
+    { "sol", "Sol", 1,
       { 0x15100D, 0x1E1712, 0x2A2019, 0x3B2D23, 0xF6EEE7, 0xA8978A, 0xF97316, 0x1C0F06, 0xF97316, 0xEF4444, 0x22C55E, 0xEAB308, 0xF97316 } },
-    { "amanecer", "Amanecer", 0,
+    { "aurora", "Aurora", 0,
       { 0xFFF9F3, 0xFBEFE3, 0xFFFFFF, 0xEAD6C3, 0x2B1C11, 0x7B6555, 0xEA580C, 0xFFFFFF, 0xEA580C, 0xDC2626, 0x16A34A, 0xCA8A04, 0xF97316 } },
     { "eclipse", "Eclipse", 1,
       { 0x000000, 0x0A0A0A, 0x161616, 0x272727, 0xEDEDED, 0x8C8C8C, 0xF59E0B, 0x000000, 0xF59E0B, 0xF87171, 0x4ADE80, 0xFBBF24, 0xF59E0B } },
     { "nebulosa", "Nebulosa", 1,
       { 0x110E1B, 0x191527, 0x231D36, 0x352C4E, 0xEFEAFB, 0x9D93B9, 0xA855F7, 0xFFFFFF, 0xA855F7, 0xF43F5E, 0x34D399, 0xFBBF24, 0xA855F7 } },
-    { "aurora", "Aurora", 1,
+    { "venus", "Venus", 1,
       { 0x0A1514, 0x0F1F1D, 0x162B28, 0x22403B, 0xE6F4F1, 0x8BAFA9, 0x2DD4BF, 0x042F2E, 0x2DD4BF, 0xF87171, 0x4ADE80, 0xFACC15, 0x14B8A6 } },
-    { "oceano", "Océano", 1,
+    { "neptuno", "Neptuno", 1,
       { 0x0A111F, 0x10192C, 0x17223B, 0x24324E, 0xE5ECF8, 0x8C9BB5, 0x3B82F6, 0xFFFFFF, 0x3B82F6, 0xF87171, 0x34D399, 0xFBBF24, 0x3B82F6 } },
     { "marte", "Marte", 1,
       { 0x160C0A, 0x20120F, 0x2C1914, 0x45281F, 0xF8E9E4, 0xB49187, 0xEF4444, 0xFFFFFF, 0xEF4444, 0xFB7185, 0x4ADE80, 0xFBBF24, 0xDC2626 } },
-    { "grafito", "Grafito", 1,
+    { "mercurio", "Mercurio", 1,
       { 0x18181B, 0x1F1F23, 0x2A2A30, 0x3A3A42, 0xF4F4F5, 0xA1A1AA, 0x38BDF8, 0x082F49, 0x38BDF8, 0xF87171, 0x4ADE80, 0xFACC15, 0x38BDF8 } },
     { "luna", "Luna", 0,
       { 0xF7F8FA, 0xEDF0F4, 0xFFFFFF, 0xD8DDE5, 0x1A1F27, 0x636B78, 0x6366F1, 0xFFFFFF, 0x6366F1, 0xDC2626, 0x16A34A, 0xCA8A04, 0x5B8DEF } },
@@ -148,12 +162,12 @@ static void cargar_archivo(SolarTemas *t, size_t *cap, const char *dir, const ch
     const SolarTema *base = NULL;
     lua_getfield(L, tabla, "base");
     if (lua_type(L, -1) == LUA_TSTRING) {
-        base = buscar_tema(t, lua_tostring(L, -1));
-        if (!base) agregar_aviso(avisos, avisos_tam, "Tema «%s»: no existe el tema base «%s», uso «solar».",
+        base = buscar_tema(t, solar_tema_id_actual(lua_tostring(L, -1)));
+        if (!base) agregar_aviso(avisos, avisos_tam, "Tema «%s»: no existe el tema base «%s», uso «sol».",
                                  archivo, lua_tostring(L, -1));
     }
     lua_pop(L, 1);
-    if (!base) base = buscar_tema(t, "solar");
+    if (!base) base = buscar_tema(t, "sol");
 
     SolarTema nuevo;
     memset(&nuevo, 0, sizeof nuevo);
@@ -270,7 +284,7 @@ int solar_tema_guardar(const char *archivo, const SolarTema *tema)
                        "return {\n  nombre = ");
     cadena_agregar_lua(&s, tema->nombre ? tema->nombre : "Mi tema");
     cadena_printf(&s, ",\n  oscuro = %s,\n  base = \"%s\",\n  colores = {\n",
-                  tema->oscuro ? "true" : "false", tema->oscuro ? "solar" : "amanecer");
+                  tema->oscuro ? "true" : "false", tema->oscuro ? "sol" : "aurora");
     for (int i = 0; i < SOLAR_COLORES_TOTAL; i++) {
         cadena_printf(&s, "    %-13s = \"#%06X\",  -- %s\n", CLAVES[i], tema->colores[i] & 0xFFFFFF, DESCRIPCIONES[i]);
     }

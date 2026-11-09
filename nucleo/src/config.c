@@ -113,7 +113,7 @@ static void lugar_xdg(SolarConfig *c, size_t *cap, const char *clave, const char
 void solar_config_defecto(SolarConfig *c)
 {
     memset(c, 0, sizeof *c);
-    c->tema = solar_strdup("solar");
+    c->tema = solar_strdup("sol");
     c->transparencia = 0;
     c->opacidad = 0.85;
     c->escala = 1.0;
@@ -134,6 +134,11 @@ void solar_config_defecto(SolarConfig *c)
     c->terminal = solar_strdup("");
     c->mostrar_usb = 1;
     c->mostrar_discos_internos = 0;
+    c->sonidos = 1;
+    c->volumen = 0.6;
+    c->animaciones = 1;
+    c->buscar_actualizaciones = 1;
+    c->repo_actualizaciones = solar_strdup("CapyIsInsano/Solar");
 
     size_t cap = 0;
     agregar_lugar(c, &cap, "Carpeta personal", "~", "casa");
@@ -171,6 +176,7 @@ void solar_config_liberar(SolarConfig *c)
     free(c->tema);
     free(c->fuente);
     free(c->terminal);
+    free(c->repo_actualizaciones);
     for (size_t i = 0; i < c->n_lugares; i++) {
         free(c->lugares[i].nombre);
         free(c->lugares[i].ruta);
@@ -358,7 +364,8 @@ static const char *const CLAVES_CONOCIDAS[] = {
     "barra_ubicacion", "barra_lateral", "mostrar_barra_lateral", "vista", "tamano_iconos",
     "mostrar_ocultos", "carpetas_primero", "orden", "orden_descendente", "un_clic",
     "confirmar_papelera", "confirmar_eliminar", "terminal", "mostrar_usb",
-    "mostrar_discos_internos", "lugares", "atajos",
+    "mostrar_discos_internos", "sonidos", "volumen", "animaciones",
+    "buscar_actualizaciones", "repo_actualizaciones", "lugares", "atajos",
 };
 
 static void avisar_desconocidas(Lector *l)
@@ -407,6 +414,10 @@ int solar_config_cargar(const char *archivo, SolarConfig *c, char *avisos, size_
                                       { "type", SOLAR_ORDEN_TIPO } };
 
     leer_texto(&l, "tema", &c->tema);
+    if (c->tema && strcmp(solar_tema_id_actual(c->tema), c->tema)) {
+        char *nuevo = solar_strdup(solar_tema_id_actual(c->tema));
+        if (nuevo) { free(c->tema); c->tema = nuevo; }
+    }
     leer_bool(&l, "transparencia", &c->transparencia);
     leer_numero(&l, "opacidad", &c->opacidad, 0.30, 1.00);
     leer_numero(&l, "escala", &c->escala, 0.75, 2.00);
@@ -427,6 +438,11 @@ int solar_config_cargar(const char *archivo, SolarConfig *c, char *avisos, size_
     leer_texto(&l, "terminal", &c->terminal);
     leer_bool(&l, "mostrar_usb", &c->mostrar_usb);
     leer_bool(&l, "mostrar_discos_internos", &c->mostrar_discos_internos);
+    leer_bool(&l, "sonidos", &c->sonidos);
+    leer_numero(&l, "volumen", &c->volumen, 0.0, 1.0);
+    leer_bool(&l, "animaciones", &c->animaciones);
+    leer_bool(&l, "buscar_actualizaciones", &c->buscar_actualizaciones);
+    leer_texto(&l, "repo_actualizaciones", &c->repo_actualizaciones);
     leer_lugares(&l, c);
     leer_atajos(&l, c);
     if (!es_global) avisar_desconocidas(&l);
@@ -519,7 +535,7 @@ int solar_config_guardar(const char *archivo, const SolarConfig *c)
         "-- (hay un ejemplo comentado en config/temas/ dentro del código de Solar).\n\n"
         "return {\n"
         "  -- ── Apariencia ─────────────────────────────────────────────\n");
-    campo_texto(&s, "tema", c->tema ? c->tema : "solar", "id de un tema integrado o de temas/");
+    campo_texto(&s, "tema", c->tema ? c->tema : "sol", "id de un tema integrado o de temas/");
     campo_bool(&s, "transparencia", c->transparencia, "fondo transparente (necesita un compositor)");
     campo_numero(&s, "opacidad", c->opacidad, "0.30 (muy transparente) a 1.00 (sólido)");
     campo_numero(&s, "escala", c->escala, "tamaño de toda la interfaz (0.75 a 2.00)");
@@ -549,6 +565,15 @@ int solar_config_guardar(const char *archivo, const SolarConfig *c)
     cadena_agregar(&s, "\n  -- ── Dispositivos ───────────────────────────────────────────\n");
     campo_bool(&s, "mostrar_usb", c->mostrar_usb, "memorias USB y tarjetas SD en la barra lateral");
     campo_bool(&s, "mostrar_discos_internos", c->mostrar_discos_internos, "otras particiones (p. ej. la de Windows)");
+
+    cadena_agregar(&s, "\n  -- ── Sonido y animaciones ───────────────────────────────────\n");
+    campo_bool(&s, "sonidos", c->sonidos, "efectos al hacer clic, al terminar, errores…");
+    campo_numero(&s, "volumen", c->volumen, "0.00 a 1.00");
+    campo_bool(&s, "animaciones", c->animaciones, "false = todo instantáneo (para PCs lentas)");
+
+    cadena_agregar(&s, "\n  -- ── Actualizaciones ────────────────────────────────────────\n");
+    campo_bool(&s, "buscar_actualizaciones", c->buscar_actualizaciones, "revisar GitHub al abrir (una vez al día)");
+    campo_texto(&s, "repo_actualizaciones", c->repo_actualizaciones ? c->repo_actualizaciones : "", "\"usuario/repo\" de GitHub");
     cadena_agregar(&s, "\n");
 
     cadena_agregar(&s, "  -- ── Lugares (barra lateral) ────────────────────────────────\n"
