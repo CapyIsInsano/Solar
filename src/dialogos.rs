@@ -4,19 +4,20 @@
 
 use crate::app::{Accion, CambioEstilo, Solar, TipoAviso, Ubicacion};
 use crate::iconos::{self, Logotipo};
-use crate::nucleo::{self, Conflicto, Entrada, Espacio, EstiloCarpeta, Info, TipoEntrada};
+use crate::nucleo::{self, Afinidad, Conflicto, Entrada, Espacio, EstiloCarpeta, Info, Programa, TipoEntrada};
 use crate::tareas::{self, Conteo, TipoTarea};
 use crate::tema::{self, Paleta, con_alfa};
 use crate::ui_util;
+use crate::sonido::{self, Sonido};
 use crate::formato;
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Frame, Id, Layout, Margin, RichText, ScrollArea, Sense, Stroke, Ui,
+    self, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Layout, Margin, RichText, ScrollArea, Sense, Stroke, Ui,
     vec2,
 };
 use egui_phosphor::regular as ph;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub enum Dialogo {
@@ -29,7 +30,7 @@ pub enum Dialogo {
     PapeleraFallo { rutas: Vec<PathBuf>, mensaje: String },
     Propiedades(Box<EstadoPropiedades>),
     Personalizar(Box<EstadoPersonalizar>),
-    AbrirCon { rutas: Vec<PathBuf>, comando: String, enfocar: bool },
+    AbrirCon(Box<EstadoAbrirCon>),
     Mensaje { titulo: String, texto: String, error: bool },
     AvisosConfig(Vec<String>),
     AcercaDe,
@@ -38,6 +39,73 @@ pub enum Dialogo {
 // ======================================================================
 //  Estados
 // ======================================================================
+
+pub struct EstadoAbrirCon {
+    pub rutas: Vec<PathBuf>,
+    pub programas: Vec<Programa>,
+    pub mime: String,
+    pub tipo: String,
+    pub filtro: String,
+    pub elegido: Option<usize>,
+    pub ver_todos: bool,
+    pub recordar: bool,
+    pub comando: String,
+    pub con_comando: bool,
+    pub error: Option<String>,
+}
+
+impl EstadoAbrirCon {
+    pub fn nuevo(rutas: Vec<PathBuf>, descripcion: String) -> Self {
+        let (programas, mime, error) = match nucleo::programas_para(&rutas, true) {
+            Ok(l) => (l.programas, l.mime, None),
+            Err(e) => (Vec::new(), String::new(), Some(e.mensaje)),
+        };
+        let elegido = programas.first().filter(|p| p.afinidad > Afinidad::Otro).map(|_| 0);
+        let hay_recomendados = elegido.is_some();
+        Self {
+            rutas,
+            programas,
+            mime,
+            tipo: descripcion,
+            filtro: String::new(),
+            elegido,
+            ver_todos: !hay_recomendados,
+            recordar: false,
+            comando: String::new(),
+            con_comando: false,
+            error,
+        }
+    }
+}
+
+/// Glifo para un programa sin ícono, según sus categorías.
+pub fn glifo_programa(p: &Programa) -> &'static str {
+    let c = p.categorias.as_str();
+    let tiene = |x: &str| c.split(';').any(|k| k == x);
+    if p.terminal || tiene("TerminalEmulator") {
+        ph::TERMINAL_WINDOW
+    } else if tiene("TextEditor") || tiene("IDE") || tiene("Development") {
+        ph::CODE
+    } else if tiene("WebBrowser") || tiene("Network") {
+        ph::GLOBE
+    } else if tiene("Graphics") || tiene("Photography") || tiene("2DGraphics") {
+        ph::PAINT_BRUSH
+    } else if tiene("Video") {
+        ph::FILM_STRIP
+    } else if tiene("Audio") || tiene("Music") {
+        ph::MUSIC_NOTES
+    } else if tiene("Office") || tiene("WordProcessor") || tiene("Viewer") {
+        ph::FILE_TEXT
+    } else if tiene("Archiving") || tiene("Compression") {
+        ph::FILE_ZIP
+    } else if tiene("Game") {
+        ph::GAME_CONTROLLER
+    } else if tiene("System") || tiene("Settings") {
+        ph::GEAR_SIX
+    } else {
+        ph::APP_WINDOW
+    }
+}
 
 pub struct EstadoPropiedades {
     pub rutas: Vec<PathBuf>,
@@ -140,28 +208,30 @@ fn nombre_o_cantidad(rutas: &[PathBuf]) -> String {
     if rutas.len() == 1 { format!("«{}»", tareas::nombre(&rutas[0])) } else { formato::elementos(rutas.len()) }
 }
 
-/// Programas comunes para "Abrir con…" que estén instalados.
-fn programas() -> &'static Vec<&'static str> {
-    static LISTA: OnceLock<Vec<&'static str>> = OnceLock::new();
-    LISTA.get_or_init(|| {
-        const CANDIDATOS: [&str; 26] = [
-            "mpv", "vlc", "celluloid", "gimp", "krita", "inkscape", "code", "codium", "zed", "kate", "gedit",
-            "gnome-text-editor", "mousepad", "libreoffice", "firefox", "chromium", "zathura", "okular", "evince",
-            "imv", "feh", "loupe", "eog", "audacious", "file-roller", "ark",
-        ];
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
-        CANDIDATOS.into_iter().filter(|c| dirs.iter().any(|d| d.join(c).is_file())).collect()
-    })
-}
-
 impl Solar {
     pub(crate) fn mostrar_dialogo(&mut self, ctx: &egui::Context, acciones: &mut Vec<Accion>) {
-        let Some(mut d) = self.dialogo.take() else { return };
+        let Some(mut d) = self.dialogo.take() else {
+            self.dialogo_desde.0 = None;
+            return;
+        };
         let p = self.paleta.clone();
         let mut cerrar = false;
+        // Entrada suave: aparece y sube un poquito
+        let clase = std::mem::discriminant(&d);
+        if self.dialogo_desde.0 != Some(clase) {
+            self.dialogo_desde = (Some(clase), std::time::Instant::now());
+        }
+        let t = self.progreso_animacion(self.dialogo_desde.1, 0.2);
+        if t < 1.0 {
+            ctx.request_repaint();
+        }
+        ctx.set_transform_layer(
+            egui::LayerId::new(egui::Order::Foreground, Id::new("dialogo")),
+            egui::emath::TSTransform::from_translation(vec2(0.0, (1.0 - t) * 14.0)),
+        );
         let ancho = match &d {
             Dialogo::Personalizar(_) => 680.0,
+            Dialogo::AbrirCon(_) => 520.0,
             Dialogo::Propiedades(_) => 460.0,
             Dialogo::AcercaDe => 420.0,
             Dialogo::AvisosConfig(_) => 520.0,
@@ -172,11 +242,13 @@ impl Solar {
             .stroke(Stroke::new(1.0, p.borde))
             .corner_radius(CornerRadius::same(16))
             .inner_margin(Margin::same(22))
-            .shadow(ctx.global_style().visuals.window_shadow);
+            .shadow(ctx.global_style().visuals.window_shadow)
+            .multiply_with_opacity(t);
         let respuesta = egui::Modal::new(Id::new("dialogo"))
             .frame(marco)
-            .backdrop_color(Color32::from_black_alpha(90))
+            .backdrop_color(Color32::from_black_alpha((90.0 * t) as u8))
             .show(ctx, |ui| {
+                ui.multiply_opacity(t);
                 ui.set_width(ancho);
                 match &mut d {
                     Dialogo::Renombrar { ruta, nombre, error, iniciado } => {
@@ -307,46 +379,7 @@ impl Solar {
                     }
                     Dialogo::Propiedades(e) => cerrar = self.dialogo_propiedades(ui, &p, e),
                     Dialogo::Personalizar(e) => cerrar = self.dialogo_personalizar(ui, &p, e),
-                    Dialogo::AbrirCon { rutas, comando, enfocar } => {
-                        ui_util::titulo(ui, &p, &format!("Abrir {} con…", nombre_o_cantidad(rutas)));
-                        let r = ui.add(
-                            egui::TextEdit::singleline(comando)
-                                .hint_text("Programa o comando, por ejemplo: mpv --fs")
-                                .desired_width(f32::INFINITY),
-                        );
-                        if *enfocar {
-                            r.request_focus();
-                            *enfocar = false;
-                        }
-                        let progs = programas();
-                        if !progs.is_empty() {
-                            ui.add_space(8.0);
-                            ui.label(RichText::new("Instalados en tu sistema:").small().color(p.texto_tenue));
-                            ui.horizontal_wrapped(|ui| {
-                                for prog in progs.iter() {
-                                    if ui.button(*prog).clicked() {
-                                        *comando = prog.to_string();
-                                    }
-                                }
-                            });
-                        }
-                        ui.add_space(14.0);
-                        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        fila_botones(ui, |ui| {
-                            let listo = !comando.trim().is_empty();
-                            if ui.add_enabled(listo, egui::Button::new(RichText::new("Abrir").color(p.texto_acento)).fill(p.acento).min_size(vec2(96.0, 32.0))).clicked()
-                                || (enter && listo)
-                            {
-                                match nucleo::abrir_con(comando.trim(), rutas) {
-                                    Ok(()) => cerrar = true,
-                                    Err(e) => self.avisar(e.mensaje, TipoAviso::Error),
-                                }
-                            }
-                            if boton(ui, "Cancelar").clicked() {
-                                cerrar = true;
-                            }
-                        });
-                    }
+                    Dialogo::AbrirCon(e) => cerrar = self.dialogo_abrir_con(ui, &p, e),
                     Dialogo::Mensaje { titulo, texto, error } => {
                         ui.horizontal(|ui| {
                             let (g, c) = if *error { (ph::WARNING_CIRCLE, p.peligro) } else { (ph::INFO, p.acento) };
@@ -389,6 +422,9 @@ impl Solar {
             });
         if respuesta.should_close() {
             cerrar = true;
+        }
+        if cerrar {
+            sonido::pedir(Sonido::Retraccion);
         }
         if !cerrar && self.dialogo.is_none() {
             self.dialogo = Some(d);
@@ -807,6 +843,224 @@ impl Solar {
         cerrar
     }
 
+    fn dialogo_abrir_con(&mut self, ui: &mut Ui, p: &Paleta, e: &mut EstadoAbrirCon) -> bool {
+        let mut cerrar = false;
+        ui_util::titulo(ui, p, &format!("Abrir {} con…", nombre_o_cantidad(&e.rutas)));
+        if !e.tipo.is_empty() || !e.mime.is_empty() {
+            let detalle = match (e.tipo.is_empty(), e.mime.is_empty()) {
+                (false, false) => format!("{} · {}", e.tipo, e.mime),
+                (false, true) => e.tipo.clone(),
+                _ => e.mime.clone(),
+            };
+            ui.label(RichText::new(detalle).small().color(p.texto_tenue));
+            ui.add_space(4.0);
+        }
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut e.filtro)
+                .hint_text(format!("{}  Buscar programa…", ph::MAGNIFYING_GLASS))
+                .desired_width(f32::INFINITY),
+        );
+        if r.changed() {
+            e.elegido = None;
+        }
+        ui.add_space(6.0);
+
+        let filtro = formato::plegar(e.filtro.trim());
+        let visibles: Vec<usize> = e
+            .programas
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| {
+                if filtro.is_empty() {
+                    e.ver_todos || x.afinidad > Afinidad::Otro
+                } else {
+                    formato::plegar(&x.nombre).contains(&filtro) || formato::plegar(&x.descripcion).contains(&filtro)
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if e.elegido.is_none_or(|i| !visibles.contains(&i)) {
+            e.elegido = visibles.first().copied();
+        }
+        let mut abrir: Option<usize> = None;
+        ScrollArea::vertical().max_height(300.0).auto_shrink([false, true]).show(ui, |ui| {
+            if visibles.is_empty() {
+                ui.add_space(10.0);
+                let t = if e.programas.is_empty() {
+                    "No encontré programas instalados (lanzadores .desktop). Puedes escribir un comando abajo."
+                } else if !filtro.is_empty() {
+                    "Ningún programa se llama así."
+                } else {
+                    "Ningún programa dice abrir este tipo de archivo. Mira todos los programas o escribe un comando."
+                };
+                ui.label(RichText::new(t).color(p.texto_tenue));
+                ui.add_space(10.0);
+            }
+            let mut seccion_previa: Option<u8> = None;
+            for &i in &visibles {
+                let prog = &e.programas[i];
+                let seccion = match prog.afinidad {
+                    Afinidad::Predeterminado | Afinidad::Exacta => 0,
+                    Afinidad::Padre => 1,
+                    Afinidad::Otro => 2,
+                };
+                if filtro.is_empty() && seccion_previa != Some(seccion) {
+                    let titulo = match seccion {
+                        0 => "Recomendados",
+                        1 => "También pueden abrirlo",
+                        _ => "Otros programas",
+                    };
+                    if seccion_previa.is_some() {
+                        ui.add_space(4.0);
+                    }
+                    ui_util::encabezado(ui, p, titulo);
+                    seccion_previa = Some(seccion);
+                }
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+                let sel = e.elegido == Some(i);
+                let h = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered() || sel, 0.12);
+                if sel {
+                    ui.painter().rect(rect, CornerRadius::same(10), p.seleccion, Stroke::new(1.0, p.seleccion_borde), egui::StrokeKind::Inside);
+                } else if h > 0.0 {
+                    ui.painter().rect_filled(rect, CornerRadius::same(10), con_alfa(p.hover, h * (p.hover.a() as f32 / 255.0)));
+                }
+                let caja_icono = egui::Rect::from_center_size(rect.left_center() + vec2(26.0, 0.0), vec2(30.0, 30.0));
+                let textura = self.iconos_programas.borrow_mut().textura(ui.ctx(), &prog.icono);
+                match textura {
+                    Some(t) => {
+                        egui::Image::new(&t).paint_at(ui, caja_icono);
+                    }
+                    None => {
+                        ui.painter().rect_filled(caja_icono, CornerRadius::same(8), con_alfa(p.acento, 0.16));
+                        ui.painter().text(caja_icono.center(), Align2::CENTER_CENTER, glifo_programa(prog), FontId::proportional(18.0), p.acento);
+                    }
+                }
+                let x = caja_icono.right() + 12.0;
+                let mut y = rect.center().y;
+                let tiene_sub = !prog.descripcion.is_empty() || prog.terminal;
+                if tiene_sub {
+                    y -= 8.0;
+                }
+                let g = ui.painter().layout_no_wrap(prog.nombre.clone(), FontId::proportional(14.5), p.texto);
+                let ancho_nombre = g.size().x;
+                ui.painter().galley(egui::pos2(x, y - g.size().y / 2.0), g, p.texto);
+                if prog.afinidad == Afinidad::Predeterminado {
+                    let g = ui.painter().layout_no_wrap("Predeterminado".into(), FontId::proportional(11.0), p.acento);
+                    let caja = egui::Rect::from_min_size(egui::pos2(x + ancho_nombre + 8.0, y - 9.0), g.size() + vec2(12.0, 6.0));
+                    ui.painter().rect_filled(caja, CornerRadius::same(9), con_alfa(p.acento, 0.15));
+                    ui.painter().galley(caja.min + vec2(6.0, 3.0), g, p.acento);
+                }
+                if tiene_sub {
+                    let mut sub = prog.descripcion.clone();
+                    if prog.terminal {
+                        if !sub.is_empty() {
+                            sub.push_str(" · ");
+                        }
+                        sub.push_str("se abre en la terminal");
+                    }
+                    let g = ui.painter().layout(sub, FontId::proportional(12.0), p.texto_tenue, rect.right() - x - 10.0);
+                    ui.painter().galley(egui::pos2(x, y + 9.0), g, p.texto_tenue);
+                }
+                let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+                if resp.clicked() {
+                    e.elegido = Some(i);
+                    sonido::pedir(Sonido::Clic);
+                }
+                if resp.double_clicked() {
+                    abrir = Some(i);
+                }
+            }
+        });
+
+        // Teclado: flechas para elegir, Enter para abrir
+        if !e.con_comando && !visibles.is_empty() {
+            let pos = e.elegido.and_then(|i| visibles.iter().position(|&v| v == i)).unwrap_or(0);
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                e.elegido = Some(visibles[(pos + 1).min(visibles.len() - 1)]);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                e.elegido = Some(visibles[pos.saturating_sub(1)]);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                abrir = e.elegido;
+            }
+        }
+
+        ui.add_space(6.0);
+        let otros = e.programas.iter().filter(|x| x.afinidad == Afinidad::Otro).count();
+        ui.horizontal(|ui| {
+            if otros > 0 && e.filtro.trim().is_empty() {
+                let texto = if e.ver_todos { "Solo los recomendados".to_string() } else { format!("Ver todos los programas ({otros} más)") };
+                if ui.link(texto).clicked() {
+                    e.ver_todos = !e.ver_todos;
+                }
+                ui.label(RichText::new("·").color(p.texto_tenue));
+            }
+            if ui.link(if e.con_comando { "Elegir de la lista" } else { "Usar un comando…" }).clicked() {
+                e.con_comando = !e.con_comando;
+            }
+        });
+        if e.con_comando {
+            ui.add_space(4.0);
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut e.comando)
+                    .hint_text("Programa o comando, por ejemplo: mpv --fs")
+                    .desired_width(f32::INFINITY),
+            );
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !e.comando.trim().is_empty() {
+                abrir = Some(usize::MAX);
+            }
+        }
+        let un_tipo = !e.mime.is_empty() && e.mime != "application/octet-stream";
+        let extension = e
+            .rutas
+            .first()
+            .and_then(|r| r.extension())
+            .map(|x| format!("los archivos .{}", x.to_string_lossy()))
+            .unwrap_or_else(|| "los archivos de este tipo".into());
+        if un_tipo && !e.con_comando {
+            ui.add_space(4.0);
+            ui.checkbox(&mut e.recordar, format!("Usar siempre este programa para {extension}"));
+        }
+        if let Some(err) = &e.error {
+            ui.label(RichText::new(err.as_str()).color(p.peligro));
+        }
+        ui.add_space(12.0);
+        fila_botones(ui, |ui| {
+            let listo = if e.con_comando { !e.comando.trim().is_empty() } else { e.elegido.is_some() };
+            if ui
+                .add_enabled(listo, egui::Button::new(RichText::new("Abrir").color(p.texto_acento)).fill(p.acento).min_size(vec2(96.0, 32.0)))
+                .clicked()
+            {
+                abrir = if e.con_comando { Some(usize::MAX) } else { e.elegido };
+            }
+            if boton(ui, "Cancelar").clicked() {
+                cerrar = true;
+            }
+        });
+
+        if let Some(i) = abrir {
+            let resultado = if i == usize::MAX {
+                nucleo::abrir_con(e.comando.trim(), &e.rutas)
+            } else {
+                let prog = e.programas[i].clone();
+                let r = nucleo::programa_lanzar(&prog, &e.rutas, &self.config.terminal);
+                if r.is_ok() && e.recordar && un_tipo {
+                    match nucleo::programa_predeterminar(&prog.id, &e.mime) {
+                        Ok(()) => self.avisar(format!("Desde ahora, {extension} se abrirán con {}.", prog.nombre), TipoAviso::Exito),
+                        Err(x) => self.avisar(format!("No se pudo guardar el predeterminado: {}", x.mensaje), TipoAviso::Error),
+                    }
+                }
+                r
+            };
+            match resultado {
+                Ok(()) => cerrar = true,
+                Err(x) => e.error = Some(x.mensaje),
+            }
+        }
+        cerrar
+    }
+
     fn dialogo_acerca(&mut self, ui: &mut Ui, p: &Paleta) -> bool {
         let mut cerrar = false;
         ui.vertical_centered(|ui| {
@@ -855,10 +1109,13 @@ impl Solar {
             .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -42.0))
             .interactable(true)
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
+                ui.with_layout(Layout::top_down(Align::Max), |ui| {
                     for (i, n) in self.notificaciones.iter().enumerate() {
                         let t = n.creada.elapsed().as_secs_f32();
                         let alfa = if t > 3.6 { ((4.2 - t) / 0.6).clamp(0.0, 1.0) } else { (t / 0.15).clamp(0.0, 1.0) };
+                        // Entra deslizándose desde la derecha
+                        let entrada = if self.config.animaciones { crate::app::ease(t / 0.28) } else { 1.0 };
+                        let desliz = ((1.0 - entrada) * 60.0).round() as i8;
                         let (glifo, color) = match n.tipo {
                             TipoAviso::Info => (ph::INFO, p.acento),
                             TipoAviso::Exito => (ph::CHECK_CIRCLE, p.exito),
@@ -869,6 +1126,7 @@ impl Solar {
                             .stroke(Stroke::new(1.0, con_alfa(p.borde, alfa)))
                             .corner_radius(CornerRadius::same(12))
                             .inner_margin(Margin::symmetric(14, 10))
+                            .outer_margin(Margin { left: 0, right: -desliz, top: 0, bottom: 0 })
                             .shadow(egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha((70.0 * alfa) as u8) })
                             .show(ui, |ui| {
                                 ui.set_max_width(380.0);

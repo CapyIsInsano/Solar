@@ -7,6 +7,7 @@ use crate::atajos::{self, Combinacion};
 use crate::iconos::{self, Logotipo};
 use crate::nucleo::{self, ColorTema, Lado, Lugar, Orden, Posicion, Tema, Vista};
 use crate::tema::{self, Paleta, con_alfa};
+use crate::sonido::{self, Sonido};
 use crate::ui_util::{self, fila, interruptor};
 use crate::formato;
 use eframe::egui::{
@@ -25,17 +26,19 @@ pub enum Pestana {
     Dispositivos,
     Atajos,
     Archivos,
+    Actualizaciones,
     AcercaDe,
 }
 
 impl Pestana {
-    const TODAS: [Pestana; 7] = [
+    const TODAS: [Pestana; 8] = [
         Pestana::Apariencia,
         Pestana::Distribucion,
         Pestana::Lugares,
         Pestana::Dispositivos,
         Pestana::Atajos,
         Pestana::Archivos,
+        Pestana::Actualizaciones,
         Pestana::AcercaDe,
     ];
 
@@ -47,6 +50,7 @@ impl Pestana {
             Pestana::Dispositivos => (ph::USB, "Memorias USB"),
             Pestana::Atajos => (ph::KEYBOARD, "Atajos"),
             Pestana::Archivos => (ph::FILES, "Archivos"),
+            Pestana::Actualizaciones => (ph::ARROWS_CLOCKWISE, "Actualizaciones"),
             Pestana::AcercaDe => (ph::SUN, "Acerca de"),
         }
     }
@@ -101,6 +105,14 @@ impl Solar {
         let Some(mut estado) = self.ajustes.take() else { return };
         let p = self.paleta.clone();
         let mut abierto = true;
+        let t = self.progreso_animacion(self.ajustes_desde, 0.22);
+        if t < 1.0 {
+            ctx.request_repaint();
+        }
+        ctx.set_transform_layer(
+            egui::LayerId::new(egui::Order::Middle, Id::new("ventana_ajustes")),
+            egui::emath::TSTransform::from_translation(vec2(0.0, (1.0 - t) * 18.0)),
+        );
         egui::Window::new(RichText::new(format!("{}  Ajustes", ph::GEAR_SIX)).strong())
             .id(Id::new("ventana_ajustes"))
             .default_pos(ctx.content_rect().center())
@@ -115,9 +127,11 @@ impl Solar {
                 Frame::window(&ctx.global_style())
                     .fill(p.elevado)
                     .corner_radius(CornerRadius::same(16))
-                    .inner_margin(Margin::same(14)),
+                    .inner_margin(Margin::same(14))
+                    .multiply_with_opacity(t),
             )
             .show(ctx, |ui| {
+                ui.multiply_opacity(t);
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.set_width(170.0);
@@ -150,8 +164,14 @@ impl Solar {
                                 p.texto,
                             );
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                if estado.pestana != pe {
+                                    sonido::pedir(Sonido::Clic);
+                                }
                                 estado.pestana = pe;
                                 estado.capturando = None;
+                                if pe == Pestana::Actualizaciones {
+                                    self.tamano_cache = None;
+                                }
                             }
                         }
                     });
@@ -167,6 +187,7 @@ impl Solar {
                                 Pestana::Dispositivos => self.ajustes_dispositivos(ui, &p, acciones),
                                 Pestana::Atajos => self.ajustes_atajos(ui, &p, &mut estado),
                                 Pestana::Archivos => self.ajustes_archivos(ui, &p, &mut estado),
+                                Pestana::Actualizaciones => self.ajustes_actualizaciones(ui, &p, acciones),
                                 Pestana::AcercaDe => self.ajustes_acerca(ui, &p, acciones),
                             }
                         });
@@ -236,7 +257,7 @@ impl Solar {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 for t in grupo {
-                    if self.tarjeta_tema(ui, p, t, self.config.tema == t.id).clicked() {
+                    if self.tarjeta_tema(ui, p, t, self.config.tema == t.id).clicked() && self.config.tema != t.id {
                         self.config.tema = t.id.clone();
                         self.config_cambio();
                     }
@@ -326,6 +347,40 @@ impl Solar {
         }
         fila(ui, p, "Barra de título de Solar", "Solar dibuja sus propios botones de ventana. Se aplica al reiniciar.", |ui| {
             cambio |= interruptor(ui, p, &mut self.config.barra_titulo_integrada).changed();
+        });
+
+        ui.add_space(14.0);
+        ui_util::encabezado(ui, p, "Sonido y animaciones");
+        let salida = nucleo::sonido_salida();
+        let detalle = if salida.is_empty() {
+            "No encontré PulseAudio/PipeWire ni ALSA, así que no sonará nada.".to_string()
+        } else {
+            format!("Al hacer clic, al terminar de copiar, en errores… (sale por {salida}).")
+        };
+        fila(ui, p, "Efectos de sonido", &detalle, |ui| {
+            cambio |= interruptor(ui, p, &mut self.config.sonidos).changed();
+        });
+        let sonidos = self.config.sonidos;
+        fila(ui, p, "Volumen", "Los clics suenan un poco más bajito que los avisos.", |ui| {
+            ui.add_enabled_ui(sonidos, |ui| {
+                if ui.button(format!("{}  Probar", ph::SPEAKER_HIGH)).clicked() {
+                    sonido::configurar(true, self.config.volumen);
+                    sonido::probar();
+                }
+                let mut v = self.config.volumen * 100.0;
+                let r = ui.add(egui::Slider::new(&mut v, 0.0..=100.0).suffix(" %").step_by(5.0).fixed_decimals(0));
+                if r.changed() {
+                    self.config.volumen = v / 100.0;
+                    cambio = true;
+                }
+                if r.drag_stopped() {
+                    sonido::configurar(true, self.config.volumen);
+                    sonido::probar();
+                }
+            });
+        });
+        fila(ui, p, "Animaciones", "Transiciones suaves al abrir carpetas, menús, ventanas y al cambiar de tema. Apágalas si tu PC es lenta.", |ui| {
+            cambio |= interruptor(ui, p, &mut self.config.animaciones).changed();
         });
         if cambio {
             self.config_cambio();
@@ -817,6 +872,165 @@ impl Solar {
     }
 
     // ------------------------------------------------------------------
+    //  Actualizaciones y caché
+    // ------------------------------------------------------------------
+
+    fn ajustes_actualizaciones(&mut self, ui: &mut Ui, p: &Paleta, acciones: &mut Vec<Accion>) {
+        use crate::actualizar::{self, Estado};
+        ui_util::titulo(ui, p, "Actualizaciones");
+        ui.label(
+            RichText::new(format!(
+                "Solar revisa las versiones publicadas en GitHub ({}) y se actualiza solo, sin desinstalar ni reinstalar.",
+                self.config.repo_actualizaciones
+            ))
+            .color(p.texto_tenue),
+        );
+        ui.add_space(10.0);
+
+        let estado = self.actualizador.estado();
+        let ancho = ui.available_width();
+        Frame::new()
+            .fill(con_alfa(p.texto, 0.04))
+            .stroke(Stroke::new(1.0, p.borde))
+            .corner_radius(CornerRadius::same(12))
+            .inner_margin(Margin::same(14))
+            .show(ui, |ui| {
+                ui.set_width(ancho - 30.0);
+                let (glifo, color, titulo, detalle): (&str, Color32, String, String) = match &estado {
+                    Estado::Nada => (ph::SUN, p.acento, format!("Tienes Solar {}", actualizar::VERSION), "Aún no he revisado si hay algo nuevo.".into()),
+                    Estado::Buscando => (ph::CLOUD_ARROW_DOWN, p.acento, "Buscando en GitHub…".into(), String::new()),
+                    Estado::AlDia => (ph::CHECK_CIRCLE, p.exito, format!("Estás al día ({})", actualizar::VERSION), "No hay versiones más nuevas.".into()),
+                    Estado::Disponible(v) => (
+                        ph::GIFT,
+                        p.acento,
+                        format!("Hay una versión nueva: {}{}", v.nombre, if v.previa { " (de prueba)" } else { "" }),
+                        format!(
+                            "Tienes la {}.{}{}",
+                            actualizar::VERSION,
+                            if v.fecha.is_empty() { String::new() } else { format!(" Publicada el {}.", v.fecha) },
+                            if v.binario.is_some() { " Trae el programa listo: solo se descarga." } else { " Se compilará desde el código (necesitas cargo)." }
+                        ),
+                    ),
+                    Estado::Trabajando { paso, detalle, .. } => (ph::GEAR_SIX, p.acento, paso.clone(), detalle.clone()),
+                    Estado::Listo { version } => (ph::CHECK_CIRCLE, p.exito, format!("Solar {version} quedó instalado"), "Reinícialo para empezar a usarlo.".into()),
+                    Estado::Permiso { version, .. } => (
+                        ph::LOCK_KEY,
+                        p.aviso,
+                        format!("Solar {version} está listo, pero necesito permiso"),
+                        "Solar está instalado en una carpeta del sistema. Copia este comando en una terminal:".into(),
+                    ),
+                    Estado::Error(e) => (ph::WARNING_CIRCLE, p.peligro, "No se pudo completar".into(), e.clone()),
+                };
+                ui.horizontal(|ui| {
+                    let girando = matches!(estado, Estado::Buscando | Estado::Trabajando { .. });
+                    if girando {
+                        ui.add(egui::Spinner::new().size(26.0).color(color));
+                    } else {
+                        ui.label(RichText::new(glifo).size(26.0).color(color));
+                    }
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(titulo).size(15.5).strong().color(p.texto));
+                        if !detalle.is_empty() {
+                            ui.add(egui::Label::new(RichText::new(detalle).color(p.texto_tenue)).wrap());
+                        }
+                    });
+                });
+                if let Estado::Trabajando { fraccion: Some(f), .. } = &estado {
+                    ui.add_space(6.0);
+                    ui.add(egui::ProgressBar::new(*f).desired_height(8.0).animate(true));
+                }
+                if let Estado::Permiso { comando, .. } = &estado {
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        Frame::new().fill(con_alfa(p.texto, 0.06)).corner_radius(CornerRadius::same(6)).inner_margin(Margin::same(8)).show(ui, |ui| {
+                            ui.add(egui::Label::new(RichText::new(comando.as_str()).monospace().size(12.0)).wrap());
+                        });
+                        if ui.button(format!("{}  Copiar", ph::COPY)).clicked() {
+                            ui.ctx().copy_text(comando.clone());
+                            self.avisar("Comando copiado.", TipoAviso::Info);
+                        }
+                    });
+                }
+                if let Estado::Disponible(v) = &estado
+                    && !v.notas.trim().is_empty()
+                {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Qué trae:").strong());
+                    ScrollArea::vertical().id_salt("notas").max_height(140.0).show(ui, |ui| {
+                        for linea in v.notas.lines().take(60) {
+                            let l = linea.trim_start_matches('#').trim();
+                            if !l.is_empty() {
+                                ui.add(egui::Label::new(RichText::new(l).color(p.texto_tenue)).wrap());
+                            }
+                        }
+                    });
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| match &estado {
+                    Estado::Disponible(v) => {
+                        if ui_util::boton_acento(ui, p, &format!("{}  Actualizar ahora", ph::DOWNLOAD_SIMPLE)).clicked() {
+                            acciones.push(Accion::Actualizar(v.clone()));
+                        }
+                        if ui.button("Revisar otra vez").clicked() {
+                            acciones.push(Accion::BuscarActualizaciones);
+                        }
+                    }
+                    Estado::Buscando => {}
+                    Estado::Trabajando { .. } => {
+                        if ui.button(format!("{}  Cancelar", ph::X)).clicked() {
+                            acciones.push(Accion::CancelarActualizacion);
+                        }
+                    }
+                    Estado::Listo { .. } | Estado::Permiso { .. } => {
+                        if ui_util::boton_acento(ui, p, &format!("{}  Reiniciar Solar", ph::ARROW_CLOCKWISE)).clicked() {
+                            acciones.push(Accion::Reiniciar);
+                        }
+                    }
+                    _ => {
+                        if ui_util::boton_acento(ui, p, &format!("{}  Buscar actualizaciones", ph::ARROWS_CLOCKWISE)).clicked() {
+                            acciones.push(Accion::BuscarActualizaciones);
+                        }
+                    }
+                });
+            });
+
+        ui.add_space(12.0);
+        let mut cambio = false;
+        fila(ui, p, "Buscar al abrir Solar", "Una vez al día, sin molestar: solo avisa si hay algo nuevo.", |ui| {
+            cambio |= interruptor(ui, p, &mut self.config.buscar_actualizaciones).changed();
+        });
+        fila(ui, p, "Repositorio", "Usuario/repo de GitHub de donde salen las versiones.", |ui| {
+            cambio |= ui.add(egui::TextEdit::singleline(&mut self.config.repo_actualizaciones).desired_width(190.0)).changed();
+        });
+        if cambio {
+            self.config_cambio();
+        }
+
+        ui.add_space(14.0);
+        ui_util::encabezado(ui, p, "Caché");
+        let tamano = *self.tamano_cache.get_or_insert_with(actualizar::tamano_cache);
+        let detalle = format!(
+            "Descargas y compilaciones de actualizaciones en {}. Ahora ocupa {}. También olvida los íconos de programas que Solar ya cargó.",
+            nucleo::contraer(&actualizar::dir_cache()),
+            crate::formato::tamano(tamano)
+        );
+        fila(ui, p, "Borrar caché", &detalle, |ui| {
+            if ui.button(format!("{}  Borrar caché", ph::BROOM)).clicked() {
+                acciones.push(Accion::BorrarCache);
+            }
+        });
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new(
+                "Para publicar una versión: sube la versión en Cargo.toml y crea un release en GitHub con su etiqueta (por ejemplo v0.2.0-alpha). \
+                 Si le adjuntas el binario (por ejemplo solar-linux-x86_64.tar.gz) se descarga directo; si no, se compila.",
+            )
+            .small()
+            .color(p.texto_tenue),
+        );
+    }
+
+    // ------------------------------------------------------------------
     //  Acerca de
     // ------------------------------------------------------------------
 
@@ -829,6 +1043,7 @@ impl Solar {
                 ui.label(RichText::new("Solar").size(26.0).strong());
                 ui.label(RichText::new(format!("Versión {}", nucleo::version())).color(p.texto_tenue));
                 ui.label(RichText::new("Núcleo en C · Interfaz en Rust · Configuración en Lua").small().color(p.texto_tenue));
+                ui.label(RichText::new(format!("{}  Por ahora, exclusivo de Linux", ph::LINUX_LOGO)).small().color(p.texto_tenue));
             });
         });
         ui.add_space(12.0);
@@ -860,7 +1075,7 @@ impl Solar {
         });
         ui.add_space(12.0);
         ui_util::encabezado(ui, p, "Hacer un tema en Lua");
-        let ejemplo = "-- ~/.config/solar/temas/bosque.lua\nreturn {\n  nombre = \"Bosque\",\n  base = \"aurora\",      -- hereda lo que no pongas\n  colores = {\n    acento  = \"#22C55E\",\n    carpeta = \"#15803D\",\n  },\n}";
+        let ejemplo = "-- ~/.config/solar/temas/bosque.lua\nreturn {\n  nombre = \"Bosque\",\n  base = \"venus\",       -- hereda lo que no pongas\n  colores = {\n    acento  = \"#22C55E\",\n    carpeta = \"#15803D\",\n  },\n}";
         Frame::new().fill(con_alfa(p.texto, 0.05)).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(10)).show(ui, |ui| {
             ui.label(RichText::new(ejemplo).monospace().color(p.texto));
         });

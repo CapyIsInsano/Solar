@@ -6,6 +6,8 @@ use crate::iconos::{self, Logotipo};
 use crate::nucleo::{Entrada, Orden, TipoEntrada, Vista};
 use crate::tema::{Paleta, con_alfa};
 use crate::ui_util;
+use crate::dialogos;
+use crate::nucleo::{Afinidad, Programa};
 use crate::{formato, nucleo};
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Event, FontId, Frame, Galley, Key, Margin, PointerButton, Pos2,
@@ -13,6 +15,7 @@ use eframe::egui::{
 };
 use egui_phosphor::regular as ph;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 const ALTO_FILA: f32 = 30.0;
@@ -56,6 +59,48 @@ impl Solar {
 
     fn cortado(&self, ruta: &PathBuf) -> bool {
         self.portapapeles.as_ref().is_some_and(|p| p.modo == ModoPortapapeles::Cortar && p.rutas.contains(ruta))
+    }
+
+    /// Opacidad y desplazamiento de un elemento al abrir la carpeta
+    /// (aparecen en cascada, de arriba hacia abajo).
+    fn aparicion(&self, orden: usize) -> (f32, f32) {
+        let Some(desde) = self.carga_animada else { return (1.0, 0.0) };
+        if !self.config.animaciones {
+            return (1.0, 0.0);
+        }
+        let t = (desde.elapsed().as_secs_f32() - orden.min(30) as f32 * 0.016) / 0.22;
+        let e = crate::app::ease(t);
+        (e.max(0.0), (1.0 - e) * 12.0)
+    }
+
+    /// 0 → 1 → 0 durante el "salto" de una carpeta recién personalizada.
+    fn salto(&self, ruta: &PathBuf) -> f32 {
+        if !self.config.animaciones {
+            return 0.0;
+        }
+        self.pop
+            .get(ruta)
+            .map(|t| {
+                let x = (t.elapsed().as_secs_f32() / 0.38).clamp(0.0, 1.0);
+                (x * std::f32::consts::PI).sin() * (1.0 - x * 0.3)
+            })
+            .unwrap_or(0.0)
+    }
+
+    fn limpiar_animaciones(&mut self, ctx: &egui::Context) {
+        let mut sigue = false;
+        if let Some(d) = self.carga_animada {
+            if d.elapsed().as_secs_f32() > 0.22 + 30.0 * 0.016 || !self.config.animaciones {
+                self.carga_animada = None;
+            } else {
+                sigue = true;
+            }
+        }
+        self.pop.retain(|_, t| t.elapsed().as_secs_f32() < 0.4);
+        sigue |= !self.pop.is_empty() && self.config.animaciones;
+        if sigue {
+            ctx.request_repaint();
+        }
     }
 
     /// Dibuja el ícono de una entrada (carpeta con su estilo o archivo).
@@ -187,8 +232,9 @@ impl Solar {
                 let ultima = (((viewport.bottom() - margen) / alto).ceil().max(0.0)) as usize + 1;
                 for k in (primera * cols)..(ultima * cols).min(n) {
                     let rect = celda(k).translate(origen.to_vec2());
-                    self.celda(ui, p, k, rect, icono, acciones);
+                    self.celda(ui, p, k, k - primera * cols, rect, icono, acciones);
                 }
+                self.limpiar_animaciones(ui.ctx());
                 if self.desplazar_a_foco {
                     if let Some(k) = self.foco.clone().and_then(|f| self.indice_visible(&f)) {
                         ui.scroll_to_rect(celda(k).translate(origen.to_vec2()), None);
@@ -202,30 +248,45 @@ impl Solar {
             });
     }
 
-    fn celda(&mut self, ui: &mut Ui, p: &Paleta, k: usize, rect: Rect, icono: f32, acciones: &mut Vec<Accion>) {
+    #[allow(clippy::too_many_arguments)]
+    fn celda(&mut self, ui: &mut Ui, p: &Paleta, k: usize, orden: usize, rect: Rect, icono: f32, acciones: &mut Vec<Accion>) {
         let it = self.item(k);
         let resp = ui.interact(rect.shrink(4.0), ui.id().with(("celda", &it.ruta)), Sense::click_and_drag());
         let seleccionado = self.seleccion.contains(&it.ruta);
         let soltar_aqui = it.es_carpeta()
             && resp.dnd_hover_payload::<Arrastre>().is_some_and(|a| !a.0.contains(&it.ruta));
-        let painter = ui.painter();
+        // Animaciones: aparecer al abrir la carpeta, levantarse con el mouse,
+        // encogerse al presionar y "saltar" al cambiar de color o logotipo
+        let (aparicion, dy) = self.aparicion(orden);
+        let ctx = ui.ctx().clone();
+        let h = ctx.animate_bool_with_time(resp.id.with("h"), resp.hovered() && !seleccionado, 0.14);
+        let presion = ctx.animate_bool_with_time(resp.id.with("p"), resp.is_pointer_button_down_on(), 0.08);
+        let salto = self.salto(&it.ruta);
+        let mut pintor = ui.painter().clone();
+        pintor.multiply_opacity(aparicion);
+        let painter = &pintor;
+        let rect = rect.translate(vec2(0.0, dy));
         let caja = rect.shrink(5.0);
         let radio = CornerRadius::same(10);
         if seleccionado {
             painter.rect(caja, radio, p.seleccion, Stroke::new(1.0, p.seleccion_borde), StrokeKind::Inside);
         } else if soltar_aqui {
             painter.rect(caja, radio, con_alfa(p.acento, 0.18), Stroke::new(2.0, p.acento), StrokeKind::Inside);
-        } else if resp.hovered() {
-            painter.rect_filled(caja, radio, p.hover);
+        } else if h > 0.0 {
+            painter.rect_filled(caja, radio, con_alfa(p.hover, h * p.hover.a() as f32 / 255.0));
         }
 
         let alfa = if self.cortado(&it.ruta) { 0.45 } else if it.entrada.es_oculto { 0.65 } else { 1.0 };
-        let rect_icono = Rect::from_center_size(pos2(rect.center().x, rect.top() + 10.0 + icono / 2.0), vec2(icono, icono));
+        let escala = 1.0 + 0.05 * h - 0.05 * presion + 0.14 * salto;
+        let rect_icono = Rect::from_center_size(
+            pos2(rect.center().x, rect.top() + 10.0 + icono / 2.0 - 3.0 * h),
+            vec2(icono * escala, icono * escala),
+        );
         self.pintar_icono(painter, rect_icono, &it.entrada, alfa);
 
         let color = if alfa < 1.0 { con_alfa(p.texto, 0.75) } else { p.texto };
         let g = texto_ajustado(painter, &it.nombre, rect.width() - 14.0, 2, 13.0, color, true);
-        pintar_galley_centrado(painter, rect.center().x, rect_icono.bottom() + 6.0, g, color);
+        pintar_galley_centrado(painter, rect.center().x, rect.top() + 16.0 + icono, g, color);
 
         let resp = resp.on_hover_ui_at_pointer(|ui| self.tooltip(ui, &it.entrada));
         self.interacciones(ui, &resp, &it, acciones);
@@ -320,8 +381,9 @@ impl Solar {
                 let ultima = (((viewport.bottom() - margen) / ALTO_FILA).ceil().max(0.0) as usize + 1).min(n);
                 for k in primera..ultima {
                     let rect = fila(k).translate(origen.to_vec2());
-                    self.fila_lista(ui, p, k, rect, acciones);
+                    self.fila_lista(ui, p, k, k - primera, rect, acciones);
                 }
+                self.limpiar_animaciones(ui.ctx());
                 if self.desplazar_a_foco {
                     if let Some(k) = self.foco.clone().and_then(|f| self.indice_visible(&f)) {
                         ui.scroll_to_rect(fila(k).translate(origen.to_vec2()), None);
@@ -335,25 +397,36 @@ impl Solar {
             });
     }
 
-    fn fila_lista(&mut self, ui: &mut Ui, p: &Paleta, k: usize, rect: Rect, acciones: &mut Vec<Accion>) {
+    fn fila_lista(&mut self, ui: &mut Ui, p: &Paleta, k: usize, orden: usize, rect: Rect, acciones: &mut Vec<Accion>) {
         let it = self.item(k);
         let resp = ui.interact(rect, ui.id().with(("fila", &it.ruta)), Sense::click_and_drag());
         let seleccionado = self.seleccion.contains(&it.ruta);
         let soltar_aqui = it.es_carpeta()
             && resp.dnd_hover_payload::<Arrastre>().is_some_and(|a| !a.0.contains(&it.ruta));
-        let painter = ui.painter();
+        let (aparicion, dy) = self.aparicion(orden);
+        let h = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered() && !seleccionado, 0.12);
+        let salto = self.salto(&it.ruta);
+        let mut pintor = ui.painter().clone();
+        pintor.multiply_opacity(aparicion);
+        let painter = &pintor;
+        // En la lista, las filas entran desde un poco a la izquierda
+        let rect = rect.translate(vec2(-dy * 0.8, 0.0));
         let radio = CornerRadius::same(6);
         if seleccionado {
             painter.rect(rect, radio, p.seleccion, Stroke::new(1.0, p.seleccion_borde), StrokeKind::Inside);
         } else if soltar_aqui {
             painter.rect(rect, radio, con_alfa(p.acento, 0.18), Stroke::new(2.0, p.acento), StrokeKind::Inside);
-        } else if resp.hovered() {
-            painter.rect_filled(rect, radio, p.hover);
-        } else if k % 2 == 1 {
-            painter.rect_filled(rect, radio, con_alfa(p.texto, 0.025));
+        } else {
+            if k % 2 == 1 {
+                painter.rect_filled(rect, radio, con_alfa(p.texto, 0.025));
+            }
+            if h > 0.0 {
+                painter.rect_filled(rect, radio, con_alfa(p.hover, h * p.hover.a() as f32 / 255.0));
+            }
         }
         let alfa = if self.cortado(&it.ruta) { 0.45 } else if it.entrada.es_oculto { 0.65 } else { 1.0 };
-        let icono = Rect::from_center_size(pos2(rect.left() + 17.0, rect.center().y), vec2(24.0, 24.0));
+        let lado = 24.0 * (1.0 + 0.2 * salto);
+        let icono = Rect::from_center_size(pos2(rect.left() + 17.0 + 2.0 * h, rect.center().y), vec2(lado, lado));
         self.pintar_icono(painter, icono, &it.entrada, alfa);
 
         let (nombre, tam, tipo, fecha) = Self::columnas_lista(rect.width());
@@ -601,6 +674,56 @@ impl Solar {
         }
     }
 
+    /// Programas para el submenú «Abrir con» (se calculan una vez por selección).
+    fn programas_menu(&self, archivos: &[PathBuf]) -> Rc<Vec<Programa>> {
+        if let Some((rutas, lista)) = self.menu_programas.borrow().as_ref()
+            && rutas.as_slice() == archivos
+        {
+            return lista.clone();
+        }
+        let lista = Rc::new(nucleo::programas_para(archivos, false).map(|l| l.programas).unwrap_or_default());
+        self.menu_programas.replace(Some((archivos.to_vec(), lista.clone())));
+        lista
+    }
+
+    fn submenu_abrir_con(&self, ui: &mut Ui, archivos: Vec<PathBuf>, acciones: &mut Vec<Accion>) {
+        if archivos.is_empty() {
+            return;
+        }
+        ui.menu_button(format!("{}   Abrir con", ph::ARROW_SQUARE_OUT), |ui| {
+            ui.set_min_width(240.0);
+            let lista = self.programas_menu(&archivos);
+            let mut hubo = false;
+            for prog in lista.iter().filter(|p| p.afinidad > Afinidad::Otro).take(10) {
+                hubo = true;
+                let mut texto = prog.nombre.clone();
+                if prog.afinidad == Afinidad::Predeterminado {
+                    texto.push_str("  (predeterminado)");
+                }
+                let textura = self.iconos_programas.borrow_mut().textura(ui.ctx(), &prog.icono);
+                let boton = match &textura {
+                    Some(t) => egui::Button::image_and_text(egui::Image::new(t).fit_to_exact_size(vec2(18.0, 18.0)), texto),
+                    None => egui::Button::new(format!("{}   {texto}", dialogos::glifo_programa(prog))),
+                };
+                let mut r = ui.add(boton);
+                if prog.terminal {
+                    r = r.on_hover_text("Se abre en la terminal");
+                }
+                if r.clicked() {
+                    acciones.push(Accion::AbrirConPrograma { programa: Box::new(prog.clone()), rutas: archivos.clone() });
+                    ui.close();
+                }
+            }
+            if !hubo {
+                ui.label(RichText::new("Ningún programa dice abrir esto").color(self.paleta.texto_tenue));
+            }
+            ui.separator();
+            if self.opcion(ui, ph::DOTS_THREE_CIRCLE, "Otro programa…", "") {
+                acciones.push(Accion::AbrirCon(archivos.clone()));
+            }
+        });
+    }
+
     /// «Añadir a Lugares» o, si la carpeta ya está ahí, «Quitar de Lugares».
     fn opcion_lugar(&self, ui: &mut Ui, ruta: &std::path::Path, atajo: &str, acciones: &mut Vec<Accion>) {
         match self.indice_lugar(ruta) {
@@ -652,15 +775,15 @@ impl Solar {
                 if self.opcion(ui, ph::TERMINAL_WINDOW, "Abrir terminal aquí", "") {
                     acciones.push(Accion::AbrirTerminal(ruta.to_path_buf()));
                 }
-            } else if self.opcion(ui, ph::ARROW_SQUARE_OUT, "Abrir con…", "") {
-                acciones.push(Accion::AbrirCon(sel.clone()));
+            } else {
+                self.submenu_abrir_con(ui, sel.clone(), acciones);
             }
         } else {
             if self.opcion(ui, ph::FOLDER_OPEN, &format!("Abrir {}", formato::elementos(n)), "Enter") {
                 acciones.push(Accion::AbrirSeleccion);
             }
-            if !todas_carpetas && self.opcion(ui, ph::ARROW_SQUARE_OUT, "Abrir con…", "") {
-                acciones.push(Accion::AbrirCon(sel.iter().filter(|r| !carpetas.contains(r)).cloned().collect()));
+            if !todas_carpetas {
+                self.submenu_abrir_con(ui, sel.iter().filter(|r| !carpetas.contains(r)).cloned().collect(), acciones);
             }
         }
         ui.separator();

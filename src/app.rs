@@ -2,16 +2,21 @@
 //! Las partes visibles están en `vista.rs`, `barras.rs`, `dialogos.rs` y
 //! `ajustes.rs`.
 
+use crate::actualizar::{self, Actualizador};
 use crate::ajustes::EstadoAjustes;
 use crate::atajos::Atajos;
-use crate::dialogos::{Dialogo, EstadoPersonalizar, EstadoPropiedades};
+use crate::dialogos::{Dialogo, EstadoAbrirCon, EstadoPersonalizar, EstadoPropiedades};
+use crate::sonido::{self, Sonido};
 use crate::nucleo::{
-    self, Carpetas, Config, Conflicto, Dispositivo, Entrada, Espacio, EstiloCarpeta, Lugar, Orden, Tema, TipoEntrada, Vista,
+    self, Carpetas, Config, Conflicto, Dispositivo, Entrada, Espacio, EstiloCarpeta, Lugar, Orden, Programa, Tema, TipoEntrada,
+    Vista,
 };
 use crate::tareas::{self, ComandoVigia, Mensaje, Tarea, TipoTarea};
 use crate::tema::{self, Paleta};
 use eframe::egui::{self, Color32, Pos2, ViewportCommand};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
@@ -87,6 +92,7 @@ pub enum Accion {
     Abrir(PathBuf),
     AbrirSeleccion,
     AbrirCon(Vec<PathBuf>),
+    AbrirConPrograma { programa: Box<Programa>, rutas: Vec<PathBuf> },
     AbrirEnVentana(PathBuf),
     AbrirTerminal(PathBuf),
     Copiar(Vec<PathBuf>),
@@ -127,7 +133,15 @@ pub enum Accion {
     TraerExternos(Vec<PathBuf>),
     AcercaDe,
     Tarea(TipoTarea),
+    BuscarActualizaciones,
+    Actualizar(Box<actualizar::Version>),
+    CancelarActualizacion,
+    Reiniciar,
+    BorrarCache,
 }
+
+/// Programas del submenú «Abrir con» para cierta selección.
+pub type MenuProgramas = (Vec<PathBuf>, Rc<Vec<Programa>>);
 
 pub struct Rutas {
     pub config: PathBuf,
@@ -141,7 +155,7 @@ pub struct Solar {
     pub(crate) ultimo_cambio: Option<Instant>,
     pub(crate) temas: Vec<Tema>,
     pub(crate) paleta: Paleta,
-    pub(crate) apariencia_aplicada: Option<(String, bool, u32, f32, String)>,
+    pub(crate) apariencia_aplicada: Option<(String, bool, u32, f32, String, bool)>,
     pub(crate) atajos: Atajos,
     pub(crate) carpetas: Arc<Mutex<Carpetas>>,
 
@@ -191,6 +205,23 @@ pub struct Solar {
     pub(crate) titulo: String,
     pub(crate) maximizada: bool,
     pub(crate) avisos_inicio: Vec<String>,
+
+    // Abrir con…
+    pub(crate) iconos_programas: RefCell<crate::iconos_programas::Cache>,
+    pub(crate) menu_programas: RefCell<Option<MenuProgramas>>,
+    // Actualizaciones
+    pub(crate) actualizador: Actualizador,
+    pub(crate) aviso_actualizacion: Option<String>,
+    pub(crate) busqueda_manual: bool,
+    pub(crate) tamano_cache: Option<u64>,
+    // Animaciones
+    pub(crate) animar_carga: bool,
+    pub(crate) carga_animada: Option<Instant>,
+    pub(crate) pop: HashMap<PathBuf, Instant>,
+    pub(crate) transicion_tema: Option<(Tema, Instant)>,
+    pub(crate) fuente_aplicada: Option<String>,
+    pub(crate) dialogo_desde: (Option<std::mem::Discriminant<Dialogo>>, Instant),
+    pub(crate) ajustes_desde: Instant,
 }
 
 pub struct Inicio {
@@ -269,7 +300,26 @@ impl Solar {
             titulo: String::new(),
             maximizada: false,
             avisos_inicio: avisos,
+            iconos_programas: RefCell::default(),
+            menu_programas: RefCell::new(None),
+            actualizador: Actualizador::default(),
+            aviso_actualizacion: None,
+            busqueda_manual: false,
+            tamano_cache: None,
+            animar_carga: true,
+            carga_animada: None,
+            pop: HashMap::new(),
+            transicion_tema: None,
+            fuente_aplicada: None,
+            dialogo_desde: (None, Instant::now()),
+            ajustes_desde: Instant::now(),
         };
+        sonido::configurar(app.config.sonidos, app.config.volumen);
+        sonido::iniciar(true);
+        crate::escritorio::integrar();
+        if app.config.buscar_actualizaciones && actualizar::toca_revisar() {
+            app.actualizador.buscar(app.config.repo_actualizaciones.clone(), ctx.clone());
+        }
         app.aplicar_apariencia(&ctx);
         app.cargar(&ctx, true);
         if !app.avisos_inicio.is_empty() {
@@ -294,13 +344,46 @@ impl Solar {
             self.config.opacidad.to_bits(),
             self.config.escala,
             self.config.fuente.clone(),
+            self.config.animaciones,
         );
+        // Cambio de tema: los colores se mezclan poco a poco (≈ 0,35 s)
+        if let Some((origen, desde)) = &self.transicion_tema {
+            let t = desde.elapsed().as_secs_f32() / 0.35;
+            if t < 1.0 && self.config.animaciones {
+                let t = ease(t);
+                let mut mezcla = tema.clone();
+                for (c, o) in mezcla.colores.iter_mut().zip(origen.colores.iter()) {
+                    *c = tema::mezclar(*o, *c, t);
+                }
+                self.paleta = tema::paleta(&mezcla, self.config.transparencia, self.config.opacidad);
+                tema::aplicar(ctx, &mezcla, &self.paleta);
+                self.aplicar_tiempo_animacion(ctx);
+                self.apariencia_aplicada = None;
+                ctx.request_repaint();
+                return;
+            }
+            self.transicion_tema = None;
+        }
         if self.apariencia_aplicada.as_ref() == Some(&clave) {
             return;
         }
-        let fuente_cambio = self.apariencia_aplicada.as_ref().map(|a| &a.4) != Some(&clave.4);
+        if let Some(antes) = &self.apariencia_aplicada
+            && !antes.0.starts_with(&format!("{}[", tema.id))
+            && self.config.animaciones
+            && let Some(origen) = self.temas.iter().find(|t| antes.0.starts_with(&format!("{}[", t.id)))
+        {
+            // Empezar la transición desde el tema anterior
+            self.transicion_tema = Some((origen.clone(), Instant::now()));
+            sonido::pedir(Sonido::Efecto);
+            self.apariencia_aplicada = None;
+            ctx.request_repaint();
+            return;
+        }
+        let fuente_cambio = self.fuente_aplicada.as_ref() != Some(&clave.4);
+        self.fuente_aplicada = Some(clave.4.clone());
         self.paleta = tema::paleta(&tema, self.config.transparencia, self.config.opacidad);
         tema::aplicar(ctx, &tema, &self.paleta);
+        self.aplicar_tiempo_animacion(ctx);
         ctx.set_zoom_factor(self.config.escala);
         if fuente_cambio && let Err(e) = crate::fuentes::configurar(ctx, &self.config.fuente) {
             self.avisar(e, TipoAviso::Error);
@@ -308,11 +391,27 @@ impl Solar {
         self.apariencia_aplicada = Some(clave);
     }
 
+    fn aplicar_tiempo_animacion(&self, ctx: &egui::Context) {
+        let tiempo = if self.config.animaciones { 0.16 } else { 0.0 };
+        ctx.all_styles_mut(|s| s.animation_time = tiempo);
+    }
+
+    /// 0 → 1 de una animación que empezó en `desde` y dura `segundos`.
+    pub(crate) fn progreso_animacion(&self, desde: Instant, segundos: f32) -> f32 {
+        if !self.config.animaciones {
+            return 1.0;
+        }
+        ease((desde.elapsed().as_secs_f32() / segundos).clamp(0.0, 1.0))
+    }
+
     // ------------------------------------------------------------------
     //  Notificaciones
     // ------------------------------------------------------------------
 
     pub fn avisar(&mut self, texto: impl Into<String>, tipo: TipoAviso) {
+        if tipo == TipoAviso::Error {
+            sonido::pedir(Sonido::Error);
+        }
         self.notificaciones.push(Notificacion { texto: texto.into(), tipo, creada: Instant::now() });
         if self.notificaciones.len() > 5 {
             self.notificaciones.remove(0);
@@ -320,6 +419,7 @@ impl Solar {
     }
 
     pub fn error(&mut self, titulo: &str, e: impl std::fmt::Display) {
+        sonido::pedir(Sonido::Error);
         self.dialogo = Some(Dialogo::Mensaje { titulo: titulo.into(), texto: e.to_string(), error: true });
     }
 
@@ -366,6 +466,7 @@ impl Solar {
         self.indice.clear();
         self.visibles.clear();
         self.visibles_sucios = true;
+        self.animar_carga = true;
         self.cargar(ctx, true);
     }
 
@@ -533,6 +634,7 @@ impl Solar {
                     self.tareas.retain(|t| t.id != id);
                     match resultado {
                         Ok(texto) => {
+                            sonido::pedir(Sonido::Listo);
                             self.avisar(texto, TipoAviso::Exito);
                             if matches!(tipo, TipoTarea::Copiar { .. } | TipoTarea::Mover { .. })
                                 && let Some(dir) = self.ubicacion.ruta()
@@ -564,6 +666,7 @@ impl Solar {
                     match resultado {
                         Ok(()) => {
                             if desmontar {
+                                sonido::pedir(Sonido::Listo);
                                 self.avisar("Ya puedes retirar la unidad con seguridad.", TipoAviso::Exito);
                             } else if abrir {
                                 let d = nucleo::dispositivos(self.config.mostrar_discos_internos);
@@ -585,6 +688,10 @@ impl Solar {
     }
 
     fn despues_de_cargar(&mut self) {
+        if self.animar_carga {
+            self.animar_carga = false;
+            self.carga_animada = Some(Instant::now());
+        }
         self.indice = self.entradas.iter().enumerate().map(|(i, e)| (e.ruta.clone(), i)).collect();
         let existentes = &self.indice;
         self.seleccion.retain(|r| existentes.contains_key(r));
@@ -774,6 +881,50 @@ impl Solar {
     }
 
     pub fn ejecutar(&mut self, ctx: &egui::Context, accion: Accion) {
+        // Cada acción con su sonido (al final del cuadro suena el más importante)
+        match &accion {
+            Accion::Navegar(_)
+            | Accion::Atras
+            | Accion::Adelante
+            | Accion::Subir
+            | Accion::Inicio
+            | Accion::Abrir(_)
+            | Accion::AbrirSeleccion
+            | Accion::AbrirCon(_)
+            | Accion::AbrirConPrograma { .. }
+            | Accion::AbrirEnVentana(_)
+            | Accion::AbrirTerminal(_)
+            | Accion::Copiar(_)
+            | Accion::Cortar(_)
+            | Accion::Renombrar(_)
+            | Accion::NuevaCarpeta
+            | Accion::NuevoArchivo
+            | Accion::Propiedades(_)
+            | Accion::Personalizar(_)
+            | Accion::CambiarVista(_)
+            | Accion::AlternarLateral
+            | Accion::Montar { .. }
+            | Accion::BuscarActualizaciones
+            | Accion::AcercaDe => sonido::pedir(Sonido::Clic),
+            Accion::Papelera(_)
+            | Accion::Eliminar(_)
+            | Accion::BorrarDePapelera(_)
+            | Accion::VaciarPapelera
+            | Accion::Desmontar { .. }
+            | Accion::QuitarLugar(_)
+            | Accion::BorrarCache => sonido::pedir(Sonido::Retraccion),
+            Accion::Estilo(..)
+            | Accion::AgregarLugar(_)
+            | Accion::Pegar(_)
+            | Accion::PegarTexto(_)
+            | Accion::Duplicar(_)
+            | Accion::Soltar { .. }
+            | Accion::TraerExternos(_)
+            | Accion::Restaurar(_)
+            | Accion::Actualizar(_) => sonido::pedir(Sonido::Efecto),
+            Accion::Ajustes => sonido::pedir(if self.ajustes.is_some() { Sonido::Retraccion } else { Sonido::Clic }),
+            _ => {}
+        }
         match accion {
             Accion::Navegar(u) => self.navegar(ctx, u),
             Accion::Atras => self.atras(ctx),
@@ -800,7 +951,16 @@ impl Solar {
                 }
             }
             Accion::AbrirCon(rutas) => {
-                self.dialogo = Some(Dialogo::AbrirCon { rutas, comando: String::new(), enfocar: true });
+                if rutas.is_empty() {
+                    return;
+                }
+                let tipo = if rutas.len() == 1 { self.entrada(&rutas[0]).map(|e| e.descripcion.clone()).unwrap_or_default() } else { String::new() };
+                self.dialogo = Some(Dialogo::AbrirCon(Box::new(EstadoAbrirCon::nuevo(rutas, tipo))));
+            }
+            Accion::AbrirConPrograma { programa, rutas } => {
+                if let Err(e) = nucleo::programa_lanzar(&programa, &rutas, &self.config.terminal) {
+                    self.avisar(e.mensaje, TipoAviso::Error);
+                }
             }
             Accion::AbrirEnVentana(ruta) => self.nueva_ventana(Some(&ruta)),
             Accion::AbrirTerminal(dir) => {
@@ -950,6 +1110,7 @@ impl Solar {
                     }
                 } else {
                     self.ajustes = Some(EstadoAjustes::nuevo(self));
+                    self.ajustes_desde = Instant::now();
                 }
             }
             Accion::NuevaVentana => {
@@ -994,6 +1155,38 @@ impl Solar {
             }
             Accion::AcercaDe => self.dialogo = Some(Dialogo::AcercaDe),
             Accion::Tarea(t) => self.iniciar_tarea(ctx, t),
+            Accion::BuscarActualizaciones => {
+                self.busqueda_manual = true;
+                self.aviso_actualizacion = None;
+                self.actualizador.buscar(self.config.repo_actualizaciones.clone(), ctx.clone());
+            }
+            Accion::Actualizar(v) => self.actualizador.aplicar(*v, ctx.clone()),
+            Accion::CancelarActualizacion => self.actualizador.cancelar(),
+            Accion::Reiniciar => {
+                if let Err(e) = actualizar::reiniciar(ctx, self.ubicacion.ruta()) {
+                    self.error("No se pudo reiniciar Solar", e);
+                }
+            }
+            Accion::BorrarCache => {
+                if self.actualizador.ocupado() {
+                    self.avisar("Espera a que termine la actualización.", TipoAviso::Info);
+                    return;
+                }
+                match actualizar::borrar_cache() {
+                    Ok(bytes) => {
+                        self.iconos_programas.borrow_mut().vaciar();
+                        self.menu_programas.replace(None);
+                        self.tamano_cache = Some(0);
+                        let texto = if bytes > 0 {
+                            format!("Caché borrada: se liberaron {}.", crate::formato::tamano(bytes))
+                        } else {
+                            "La caché ya estaba vacía.".into()
+                        };
+                        self.avisar(texto, TipoAviso::Exito);
+                    }
+                    Err(e) => self.avisar(e, TipoAviso::Error),
+                }
+            }
         }
     }
 
@@ -1151,6 +1344,12 @@ impl Solar {
         for e in self.entradas.iter_mut().filter(|e| rutas.contains(&e.ruta)) {
             e.estilo = (!estilo.vacio()).then(|| estilo.clone());
         }
+        // Un pequeño "salto" de la carpeta para que se note el cambio
+        let ahora = Instant::now();
+        for r in rutas {
+            self.pop.insert(r.clone(), ahora);
+        }
+        sonido::pedir(Sonido::Efecto);
         if let Some(e) = error {
             self.avisar(format!("No se pudo guardar el estilo: {e}"), TipoAviso::Error);
         }
@@ -1166,6 +1365,55 @@ impl Solar {
                 CambioEstilo::Quitar => e = EstiloCarpeta::default(),
             }
             self.poner_estilo(std::slice::from_ref(r), &e);
+        }
+    }
+
+    /// Avisos del actualizador (corre en otro hilo).
+    fn revisar_actualizador(&mut self) {
+        let en_pestana = self.ajustes.as_ref().is_some_and(|a| a.pestana == crate::ajustes::Pestana::Actualizaciones);
+        match self.actualizador.estado() {
+            actualizar::Estado::Disponible(v) => {
+                let clave = format!("hay:{}", v.etiqueta);
+                if self.aviso_actualizacion.as_deref() != Some(clave.as_str()) {
+                    self.aviso_actualizacion = Some(clave);
+                    if !en_pestana {
+                        sonido::pedir(Sonido::Efecto);
+                        self.avisar(
+                            format!("Hay una versión nueva de Solar: {}. Instálala en Ajustes → Actualizaciones.", v.etiqueta),
+                            TipoAviso::Info,
+                        );
+                    }
+                }
+            }
+            actualizar::Estado::Listo { version } => {
+                let clave = format!("listo:{version}");
+                if self.aviso_actualizacion.as_deref() != Some(clave.as_str()) {
+                    self.aviso_actualizacion = Some(clave);
+                    self.tamano_cache = None; // la compilación creció la caché
+                    sonido::pedir(Sonido::Listo);
+                    self.avisar(format!("Solar {version} quedó instalado. Reinícialo para usarlo."), TipoAviso::Exito);
+                }
+            }
+            actualizar::Estado::Error(e) => {
+                let clave = format!("error:{e}");
+                if self.aviso_actualizacion.as_deref() != Some(clave.as_str()) {
+                    self.aviso_actualizacion = Some(clave);
+                    self.tamano_cache = None;
+                    // La revisión automática al abrir falla en silencio (sin internet, etc.)
+                    if self.busqueda_manual && !en_pestana {
+                        self.avisar(e, TipoAviso::Error);
+                    } else if self.busqueda_manual {
+                        sonido::pedir(Sonido::Error);
+                    }
+                }
+            }
+            actualizar::Estado::AlDia if self.busqueda_manual && self.aviso_actualizacion.as_deref() != Some("aldia") => {
+                self.aviso_actualizacion = Some("aldia".into());
+                if !en_pestana {
+                    self.avisar(format!("Ya tienes la versión más nueva ({}).", actualizar::VERSION), TipoAviso::Info);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1213,7 +1461,21 @@ fn decodificar_uri(s: &str) -> String {
 }
 
 pub fn buscar_tema<'a>(temas: &'a [Tema], id: &str) -> &'a Tema {
-    temas.iter().find(|t| t.id == id).or_else(|| temas.first()).expect("siempre hay temas integrados")
+    temas
+        .iter()
+        .find(|t| t.id == id)
+        .or_else(|| {
+            let actual = nucleo::tema_id_actual(id);
+            temas.iter().find(|t| t.id == actual)
+        })
+        .or_else(|| temas.first())
+        .expect("siempre hay temas integrados")
+}
+
+/// Curva suave para animaciones (sale rápido y frena al final).
+pub fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
 }
 
 impl eframe::App for Solar {
@@ -1223,7 +1485,9 @@ impl eframe::App for Solar {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        sonido::configurar(self.config.sonidos, self.config.volumen);
         self.procesar_mensajes(&ctx);
+        self.revisar_actualizador();
         self.aplicar_apariencia(&ctx);
         self.actualizar_titulo(&ctx);
         self.actualizar_visibles();
@@ -1292,9 +1556,7 @@ impl eframe::App for Solar {
         if self.config.barra_ubicacion == nucleo::Posicion::Abajo {
             self.panel_ubicacion_abajo(ui, &mut acciones);
         }
-        if self.config.mostrar_barra_lateral {
-            self.barra_lateral(ui, &mut acciones);
-        }
+        self.barra_lateral(ui, &mut acciones);
         self.vista_central(ui, &mut acciones);
 
         self.dibujar_arrastre(&ctx);
@@ -1310,6 +1572,7 @@ impl eframe::App for Solar {
             self.ejecutar(&ctx, a);
         }
         self.guardar_si_hace_falta(&ctx);
+        sonido::despachar();
 
         if !self.tareas.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(250));

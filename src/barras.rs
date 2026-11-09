@@ -491,13 +491,16 @@ impl Solar {
             nucleo::Lado::Izquierda => egui::Panel::left("barra_lateral"),
             nucleo::Lado::Derecha => egui::Panel::right("barra_lateral"),
         };
+        // Se desliza al mostrarla o esconderla (F9)
+        let mut visible = self.config.mostrar_barra_lateral;
         panel
             .resizable(true)
+            .drag_to_open(false)
             .default_size(220.0)
             .size_range(170.0..=380.0)
             .frame(Frame::new().fill(p.superficie).inner_margin(Margin::symmetric(8, 10)))
             .show_separator_line(true)
-            .show(ui, |ui| {
+            .show_collapsible(ui, &mut visible, |ui| {
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;
                     ui_util::encabezado(ui, &p, "Lugares");
@@ -587,6 +590,11 @@ impl Solar {
                     }
                 });
             });
+        if visible != self.config.mostrar_barra_lateral {
+            // La escondieron arrastrando el borde
+            self.config.mostrar_barra_lateral = visible;
+            self.config_cambio();
+        }
     }
 
     fn fila_dispositivo(&mut self, ui: &mut Ui, p: &Paleta, d: &Dispositivo, acciones: &mut Vec<Accion>) {

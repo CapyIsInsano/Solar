@@ -17,17 +17,22 @@ pub fn boton_icono_estado(ui: &mut Ui, p: &Paleta, glifo: &str, ayuda: &str, hab
     let tam = vec2(32.0, 30.0);
     let sentido = if habilitado { Sense::click() } else { Sense::hover() };
     let (rect, resp) = ui.allocate_exact_size(tam, sentido);
+    if habilitado && resp.clicked() {
+        crate::sonido::pedir(crate::sonido::Sonido::Clic);
+    }
     if ui.is_rect_visible(rect) {
+        // El fondo aparece y se va suave; al presionar se encoge un poquito
+        let h = ui.ctx().animate_bool_with_time(resp.id.with("h"), habilitado && resp.hovered(), 0.12);
+        let presionado = ui.ctx().animate_bool_with_time(resp.id.with("p"), habilitado && resp.is_pointer_button_down_on(), 0.08);
+        let caja = rect.shrink(presionado * 1.5);
         let fondo = if activo {
             con_alfa(p.acento, 0.22)
-        } else if habilitado && resp.is_pointer_button_down_on() {
-            con_alfa(p.texto, 0.14)
-        } else if habilitado && resp.hovered() {
-            p.hover
+        } else if presionado > 0.0 {
+            tema::mezclar(p.hover, con_alfa(p.texto, 0.14), presionado)
         } else {
-            Color32::TRANSPARENT
+            con_alfa(p.hover, h * p.hover.a() as f32 / 255.0)
         };
-        ui.painter().rect_filled(rect, CornerRadius::same(8), fondo);
+        ui.painter().rect_filled(caja, CornerRadius::same(8), fondo);
         let color = if !habilitado {
             con_alfa(p.texto_tenue, 0.45)
         } else if activo {
@@ -41,6 +46,12 @@ pub fn boton_icono_estado(ui: &mut Ui, p: &Paleta, glifo: &str, ayuda: &str, hab
     if ayuda.is_empty() { resp } else { resp.on_hover_text(ayuda) }
 }
 
+/// Botón principal (con el color de acento).
+pub fn boton_acento(ui: &mut Ui, p: &Paleta, texto: &str) -> Response {
+    ui.add(egui::Button::new(RichText::new(texto).color(p.texto_acento).strong()).fill(p.acento).min_size(vec2(120.0, 32.0)))
+        .on_hover_cursor(CursorIcon::PointingHand)
+}
+
 /// Interruptor tipo celular.
 pub fn interruptor(ui: &mut Ui, p: &Paleta, encendido: &mut bool) -> Response {
     let tam = vec2(42.0, 24.0);
@@ -48,6 +59,7 @@ pub fn interruptor(ui: &mut Ui, p: &Paleta, encendido: &mut bool) -> Response {
     if resp.clicked() {
         *encendido = !*encendido;
         resp.mark_changed();
+        crate::sonido::pedir(crate::sonido::Sonido::Clic);
     }
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, ui.is_enabled(), *encendido, ""));
     if ui.is_rect_visible(rect) {

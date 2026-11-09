@@ -3,18 +3,27 @@
 //! Núcleo en C (nucleo/), interfaz en Rust (src/) y configuración en Lua
 //! (~/.config/solar/config.lua y ~/.config/solar/temas/*.lua).
 //!
+//! Por ahora Solar es exclusivo de Linux.
+//!
 //! Licencia: GPL-3.0-or-later
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("Solar por ahora es exclusivo de Linux (el núcleo usa inotify, /proc y /sys).");
+
+mod actualizar;
 mod ajustes;
 mod app;
 mod atajos;
 mod barras;
 mod dialogos;
+mod escritorio;
 mod ffi;
 mod formato;
 mod fuentes;
 mod iconos;
+mod iconos_programas;
 mod nucleo;
+mod sonido;
 mod tareas;
 mod tema;
 mod ui_util;
@@ -37,6 +46,9 @@ Configuración:
   ~/.config/solar/config.lua      Ajustes (Solar la reescribe al cambiar algo)
   ~/.config/solar/temas/*.lua     Tus temas de colores
   ~/.local/share/solar/           Colores y logotipos de tus carpetas
+  ~/.cache/solar/                 Descargas de actualizaciones (se puede borrar)
+
+Solar por ahora es exclusivo de Linux.
 ";
 
 fn main() -> eframe::Result {
@@ -55,6 +67,7 @@ fn main() -> eframe::Result {
                 println!("config: {}", nucleo::dir_config().join("config.lua").display());
                 println!("temas:  {}", nucleo::dir_config().join("temas").display());
                 println!("datos:  {}", nucleo::dir_datos().display());
+                println!("caché:  {}", actualizar::dir_cache().display());
                 return Ok(());
             }
             Some(s) if s.starts_with('-') => {
@@ -97,7 +110,7 @@ fn main() -> eframe::Result {
     let (temas, avisos_temas) = nucleo::cargar_temas(Some(&dir_temas));
     avisos.extend(avisos_temas);
     if !temas.iter().any(|t| t.id == config.tema) {
-        avisos.push(format!("No existe el tema «{}»; uso «solar».", config.tema));
+        avisos.push(format!("No existe el tema «{}»; uso «sol».", config.tema));
     }
     let carpetas = match nucleo::Carpetas::abrir(&nucleo::dir_datos().join("carpetas.tsv")) {
         Some(c) => c,
@@ -115,7 +128,7 @@ fn main() -> eframe::Result {
         .with_min_inner_size([560.0, 380.0])
         .with_transparent(true)
         .with_decorations(!integrada);
-    if let Ok(icono) = eframe::icon_data::from_png_bytes(include_bytes!("../recursos/solar-256.png")) {
+    if let Ok(icono) = eframe::icon_data::from_png_bytes(escritorio::ICONOS[6].1) {
         ventana = ventana.with_icon(icono);
     }
     let opciones = eframe::NativeOptions { viewport: ventana, ..Default::default() };

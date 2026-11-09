@@ -162,10 +162,34 @@ pub struct SolarConfig {
     pub terminal: *mut c_char,
     pub mostrar_usb: i32,
     pub mostrar_discos_internos: i32,
+    pub sonidos: i32,
+    pub volumen: f64,
+    pub animaciones: i32,
+    pub buscar_actualizaciones: i32,
+    pub repo_actualizaciones: *mut c_char,
     pub lugares: *mut SolarLugar,
     pub n_lugares: usize,
     pub atajos: *mut SolarAtajo,
     pub n_atajos: usize,
+}
+
+#[repr(C)]
+pub struct SolarPrograma {
+    pub id: *mut c_char,
+    pub archivo: *mut c_char,
+    pub nombre: *mut c_char,
+    pub descripcion: *mut c_char,
+    pub icono: *mut c_char,
+    pub categorias: *mut c_char,
+    pub terminal: i32,
+    pub afinidad: i32,
+}
+
+#[repr(C)]
+pub struct SolarProgramas {
+    pub programas: *mut SolarPrograma,
+    pub cantidad: usize,
+    pub mime: *mut c_char,
 }
 
 #[repr(C)]
@@ -314,4 +338,19 @@ unsafe extern "C" {
     pub fn solar_temas_liberar(t: *mut SolarTemas);
     pub fn solar_tema_guardar(archivo: *const c_char, tema: *const SolarTema) -> c_int;
     pub fn solar_color_clave(indice: c_int) -> *const c_char;
+
+    // Temas renombrados
+    pub fn solar_tema_id_actual(id: *const c_char) -> *const c_char;
+
+    // Sonido
+    pub fn solar_sonido_cargar(id: i32, mp3: *const u8, tam: usize) -> c_int;
+    pub fn solar_sonido_reproducir(id: i32, volumen: f32) -> c_int;
+    pub fn solar_sonido_salida() -> *const c_char;
+
+    // Programas
+    pub fn solar_mime_de(ruta: *const c_char, mime: *mut c_char, tam: usize) -> c_int;
+    pub fn solar_programas_para(rutas: *const *const c_char, cantidad: usize, incluir_todos: i32, salida: *mut SolarProgramas) -> c_int;
+    pub fn solar_programas_liberar(p: *mut SolarProgramas);
+    pub fn solar_programa_lanzar(p: *const SolarPrograma, rutas: *const *const c_char, cantidad: usize, terminal: *const c_char) -> c_int;
+    pub fn solar_programa_predeterminar(id: *const c_char, mime: *const c_char) -> c_int;
 }
