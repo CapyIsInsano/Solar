@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     width="512" height="512" viewBox="48 48 416 416">
+  <title>Solar — ícono de aplicación (el logo con menos margen)</title>
+  <defs>
+    <linearGradient id="grad-trasera" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EA580C"/>
+      <stop offset="1" stop-color="#C2410C"/>
+    </linearGradient>
+    <linearGradient id="grad-frontal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDBA74"/>
+      <stop offset="1" stop-color="#FB923C"/>
+    </linearGradient>
+  </defs>
+
+  <g id="capa-carpeta-trasera" inkscape:groupmode="layer" inkscape:label="Carpeta trasera">
+    <path id="carpeta-trasera" fill="url(#grad-trasera)"
+          d="M88 120 H284 L316 88 H424 Q448 88 448 112 V400 Q448 424 424 424 H88 Q64 424 64 400 V144 Q64 120 88 120 Z"/>
+  </g>
+
+  <g id="capa-carpeta-frontal" inkscape:groupmode="layer" inkscape:label="Carpeta frontal">
+    <path id="carpeta-frontal" fill="url(#grad-frontal)"
+          d="M144 176 H424 Q448 176 448 200 V400 Q448 424 424 424 H90 Q62 424 68 398 L120 194 Q125 176 144 176 Z"/>
+  </g>
+
+  <g id="capa-sol-rayos" inkscape:groupmode="layer" inkscape:label="Sol - rayos" transform="translate(270 302) skewX(-14) translate(-270 -302)"
+     stroke="#C2410C" stroke-width="14" stroke-linecap="round" fill="none">
+    <line id="rayo-1" x1="270.0" y1="242.0" x2="270.0" y2="218.0"/>
+    <line id="rayo-2" x1="312.4" y1="259.6" x2="329.4" y2="242.6"/>
+    <line id="rayo-3" x1="330.0" y1="302.0" x2="354.0" y2="302.0"/>
+    <line id="rayo-4" x1="312.4" y1="344.4" x2="329.4" y2="361.4"/>
+    <line id="rayo-5" x1="270.0" y1="362.0" x2="270.0" y2="386.0"/>
+    <line id="rayo-6" x1="227.6" y1="344.4" x2="210.6" y2="361.4"/>
+    <line id="rayo-7" x1="210.0" y1="302.0" x2="186.0" y2="302.0"/>
+    <line id="rayo-8" x1="227.6" y1="259.6" x2="210.6" y2="242.6"/>
+  </g>
+
+  <g id="capa-sol-nucleo" inkscape:groupmode="layer" inkscape:label="Sol - núcleo" transform="translate(270 302) skewX(-14) translate(-270 -302)">
+    <circle id="sol-nucleo" cx="270" cy="302" r="40" fill="#C2410C"/>
+  </g>
+</svg>
