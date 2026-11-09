@@ -8,14 +8,14 @@
 -- "#RRGGBB" (o "#RGB"). Lo que no pongas se hereda del tema «base».
 --
 -- Temas integrados que puedes usar como base:
---   solar, amanecer, eclipse, nebulosa, aurora, oceano, marte, grafito, luna
+--   sol, aurora, eclipse, nebulosa, venus, neptuno, marte, mercurio, luna
 
 local verde        = "#22C55E"
 local verde_oscuro = "#15803D"
 
 return {
   nombre = "Bosque",
-  base   = "aurora",
+  base   = "venus",
   oscuro = true,
 
   colores = {
