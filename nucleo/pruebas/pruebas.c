@@ -392,7 +392,8 @@ static void prueba_config(void)
 
     SolarConfig c;
     solar_config_defecto(&c);
-    REVISAR(!strcmp(c.tema, "solar") && c.n_atajos > 20 && c.n_lugares >= 1);
+    REVISAR(!strcmp(c.tema, "sol") && c.n_atajos > 20 && c.n_lugares >= 1);
+    REVISAR(c.sonidos == 1 && c.volumen > 0.5 && c.animaciones == 1 && !strcmp(c.repo_actualizaciones, "CapyIsInsano/Solar"));
     REVISAR(!strcmp(c.lugares[0].ruta, "~"));
     REVISAR(solar_config_cargar(archivo, &c, avisos, sizeof avisos) == ENOENT);
 
@@ -403,6 +404,11 @@ static void prueba_config(void)
     c.barra_ubicacion = SOLAR_POS_ABAJO;
     c.vista = SOLAR_VISTA_LISTA;
     c.tamano_iconos = 96;
+    c.sonidos = 0;
+    c.volumen = 0.25;
+    c.animaciones = 0;
+    free(c.repo_actualizaciones);
+    c.repo_actualizaciones = solar_strdup("capy/prueba");
     free(c.atajos[0].teclas);
     c.atajos[0].teclas = solar_strdup("Ctrl+Shift+\"raro\"");
     REVISAR(solar_config_guardar(archivo, &c) == 0);
@@ -415,6 +421,8 @@ static void prueba_config(void)
     REVISAR(!strcmp(c.tema, "eclipse") && c.transparencia == 1 && c.opacidad > 0.69 && c.opacidad < 0.71);
     REVISAR(c.barra_ubicacion == SOLAR_POS_ABAJO && c.vista == SOLAR_VISTA_LISTA && c.tamano_iconos == 96);
     REVISAR(!strcmp(c.atajos[0].teclas, "Ctrl+Shift+\"raro\""));
+    REVISAR(c.sonidos == 0 && c.volumen > 0.24 && c.volumen < 0.26 && c.animaciones == 0);
+    REVISAR(!strcmp(c.repo_actualizaciones, "capy/prueba"));
     solar_config_liberar(&c);
 
     /* Valores raros: avisos, pero se carga lo demás */
@@ -425,7 +433,7 @@ static void prueba_config(void)
              "  atajos = { copiar = 'Ctrl+Insert', volar = 'F1', buscar = false }, tipo_raro = 1 }\n");
     solar_config_defecto(&c);
     REVISAR(solar_config_cargar(archivo, &c, avisos, sizeof avisos) == 0);
-    REVISAR(!strcmp(c.tema, "oceano") && c.opacidad == 0.85 && c.vista == SOLAR_VISTA_CUADRICULA);
+    REVISAR(!strcmp(c.tema, "neptuno") && c.opacidad == 0.85 && c.vista == SOLAR_VISTA_CUADRICULA);
     REVISAR(strstr(avisos, "opacidad") && strstr(avisos, "mosaico") && strstr(avisos, "volar") && strstr(avisos, "tipo_raro"));
     REVISAR(c.n_lugares == 2 && !strcmp(c.lugares[0].nombre, "Proyectos") && !strcmp(c.lugares[1].icono, "mando"));
     int encontrado = 0;
@@ -456,7 +464,7 @@ static void prueba_config(void)
         escribir(archivo, malos[i]);
         solar_config_defecto(&c);
         int r = solar_config_cargar(archivo, &c, avisos, sizeof avisos);
-        REVISAR(r == EINVAL && avisos[0] != '\0' && !strcmp(c.tema, "solar"));
+        REVISAR(r == EINVAL && avisos[0] != '\0' && !strcmp(c.tema, "sol"));
         solar_config_liberar(&c);
     }
 }
@@ -469,7 +477,16 @@ static void prueba_temas(void)
     crear_dirs(dir, 0755);
     SolarTemas t;
     REVISAR(solar_temas_cargar(NULL, &t, avisos, sizeof avisos) == 0 && t.cantidad == 9);
-    REVISAR(!strcmp(t.temas[0].id, "solar") && t.temas[0].colores[SOLAR_COLOR_ACENTO] == 0xF97316);
+    REVISAR(!strcmp(t.temas[0].id, "sol") && t.temas[0].colores[SOLAR_COLOR_ACENTO] == 0xF97316);
+    {
+        static const char *const NOMBRES[] = { "Sol", "Aurora", "Eclipse", "Nebulosa", "Venus",
+                                               "Neptuno", "Marte", "Mercurio", "Luna" };
+        int bien = 1;
+        for (size_t i = 0; i < 9; i++) bien &= !strcmp(t.temas[i].nombre, NOMBRES[i]);
+        REVISAR(bien);
+        REVISAR(!strcmp(solar_tema_id_actual("amanecer"), "aurora") && !strcmp(solar_tema_id_actual("grafito"), "mercurio"));
+        REVISAR(!strcmp(solar_tema_id_actual("venus"), "venus") && !strcmp(solar_tema_id_actual("solar"), "sol"));
+    }
     solar_temas_liberar(&t);
 
     char archivo[PATH_MAX + 32];
@@ -548,6 +565,150 @@ static void prueba_dispositivos_vigilante(void)
     solar_vigilante_destruir(v);
 }
 
+
+static int esperar_archivo(const char *ruta, int ms)
+{
+    for (int i = 0; i < ms / 20; i++) {
+        if (tamano_de(ruta) > 0) return 1;
+        usleep(20000);
+    }
+    return 0;
+}
+
+static void prueba_programas(void)
+{
+    SECCION("tipos de archivo y programas (Abrir con)");
+    /* Una "distro" falsa en raiz/sistema: base MIME y lanzadores */
+    mkdir(en_raiz("sistema"), 0755);
+    mkdir(en_raiz("sistema/mime"), 0755);
+    mkdir(en_raiz("sistema/applications"), 0755);
+    mkdir(en_raiz("sistema/applications/kde4"), 0755);
+    escribir(en_raiz("sistema/mime/globs2"),
+             "# comentario\n50:text/x-c++src:*.cpp\n50:text/x-csrc:*.c\n50:text/plain:*.txt\n"
+             "50:application/x-tar:*.tar\n50:application/x-compressed-tar:*.tar.gz\n"
+             "50:image/png:*.png\n10:text/x-makefile:Makefile:cs\n");
+    escribir(en_raiz("sistema/mime/subclasses"), "text/x-c++src text/x-csrc\ntext/x-csrc text/plain\n");
+    escribir(en_raiz("sistema/mime/aliases"), "text/x-c text/x-csrc\n");
+    escribir(en_raiz("sistema/applications/nvim.desktop"),
+             "[Desktop Entry]\nType=Application\nName=Neovim\nGenericName=Text Editor\nGenericName[es]=Editor de texto\n"
+             "Exec=nvim %F\nTerminal=true\nIcon=nvim\nMimeType=text/plain;text/x-c++src;\n");
+    escribir(en_raiz("sistema/applications/codium.desktop"),
+             "[Desktop Entry]\nType=Application\nName=VSCodium\nExec=codium --unity-launch %F\nMimeType=text/plain;\n"
+             "[Desktop Action new-window]\nName=Ventana nueva\nExec=codium --new-window %F\n");
+    escribir(en_raiz("sistema/applications/code.desktop"),
+             "[Desktop Entry]\nType=Application\nName=Visual Studio Code\nName[es_MX]=VS Code\nExec=code %F\n"
+             "MimeType=text/plain;inode/directory;\n");
+    escribir(en_raiz("sistema/applications/gimp.desktop"),
+             "[Desktop Entry]\nType=Application\nName=GIMP\nExec=gimp %U\nMimeType=image/png;\n");
+    escribir(en_raiz("sistema/applications/kde4/kate.desktop"),
+             "[Desktop Entry]\nType=Application\nName=Kate\nExec=kate %U\nMimeType=text/x-csrc;\n");
+    escribir(en_raiz("sistema/applications/fantasma.desktop"),
+             "[Desktop Entry]\nType=Application\nName=Fantasma\nExec=x %F\nTryExec=no-existe-solar-xyz\nMimeType=text/plain;\n");
+    escribir(en_raiz("sistema/applications/borrado.desktop"),
+             "[Desktop Entry]\nType=Application\nName=Borrado\nExec=x %F\nHidden=true\nMimeType=text/plain;\n");
+    escribir(en_raiz("sistema/applications/enlace.desktop"),
+             "[Desktop Entry]\nType=Link\nName=Enlace\nURL=https://example.com\n");
+    char copia[PATH_MAX];
+    snprintf(copia, sizeof copia, "%s/copiado.txt", raiz);
+    char lanzador[PATH_MAX * 2];
+    snprintf(lanzador, sizeof lanzador,
+             "[Desktop Entry]\nType=Application\nName=Copiador\nExec=cp %%f \"%s\"\nMimeType=text/x-c++src;\n", copia);
+    escribir(en_raiz("sistema/applications/copiador.desktop"), lanzador);
+
+    char *cpp = en_raiz("hola.cpp"), *tgz = en_raiz("cosa.tar.gz"), *raro = en_raiz("LEEME");
+    char *bin = en_raiz("datos.bin"), *mk = en_raiz("Makefile"), *png = en_raiz("foto.png");
+    escribir(cpp, "int main() {}\n");
+    escribir(tgz, "x");
+    escribir(raro, "solo texto\n");
+    escribir(mk, "all:\n");
+    escribir(png, "x");
+    int fd = open(bin, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) { (void)!write(fd, "\x01\x00\x02\x00", 4); close(fd); }
+
+    char mime[128];
+    REVISAR(solar_mime_de(cpp, mime, sizeof mime) == 0 && !strcmp(mime, "text/x-c++src"));
+    REVISAR(solar_mime_de(tgz, mime, sizeof mime) == 0 && !strcmp(mime, "application/x-compressed-tar"));
+    REVISAR(solar_mime_de(raro, mime, sizeof mime) == 0 && !strcmp(mime, "text/plain"));
+    REVISAR(solar_mime_de(bin, mime, sizeof mime) == 0 && !strcmp(mime, "application/octet-stream"));
+    REVISAR(solar_mime_de(mk, mime, sizeof mime) == 0 && !strcmp(mime, "text/x-makefile"));
+    REVISAR(solar_mime_de(raiz, mime, sizeof mime) == 0 && !strcmp(mime, "inode/directory"));
+
+    /* Para un .cpp: exacto primero (Copiador, Neovim), luego los padres */
+    SolarProgramas ps;
+    const char *uno[] = { cpp };
+    REVISAR(solar_programas_para(uno, 1, 0, &ps) == 0);
+    REVISAR(ps.mime && !strcmp(ps.mime, "text/x-c++src"));
+    REVISAR(ps.cantidad == 5);
+    if (ps.cantidad == 5) {
+        REVISAR(!strcmp(ps.programas[0].nombre, "Copiador") && ps.programas[0].afinidad == SOLAR_AFINIDAD_EXACTA);
+        REVISAR(!strcmp(ps.programas[1].nombre, "Neovim") && ps.programas[1].terminal == 1);
+        REVISAR(ps.programas[1].descripcion && !strcmp(ps.programas[1].descripcion, "Editor de texto"));
+        REVISAR(!strcmp(ps.programas[2].nombre, "Kate") && !strcmp(ps.programas[2].id, "kde4-kate.desktop"));
+        REVISAR(ps.programas[2].afinidad == SOLAR_AFINIDAD_PADRE);
+        REVISAR(!strcmp(ps.programas[3].nombre, "VS Code") && !strcmp(ps.programas[4].nombre, "VSCodium"));
+    }
+    solar_programas_liberar(&ps);
+
+    /* Con todos: también GIMP, al final */
+    REVISAR(solar_programas_para(uno, 1, 1, &ps) == 0);
+    REVISAR(ps.cantidad == 6 && !strcmp(ps.programas[5].nombre, "GIMP") && ps.programas[5].afinidad == SOLAR_AFINIDAD_OTRO);
+    solar_programas_liberar(&ps);
+
+    /* Varios archivos: solo los que abren todos */
+    const char *dos[] = { cpp, png };
+    REVISAR(solar_programas_para(dos, 2, 0, &ps) == 0 && ps.cantidad == 0);
+    solar_programas_liberar(&ps);
+
+    /* Predeterminado */
+    REVISAR(solar_programa_predeterminar("codium.desktop", "text/x-c++src") == 0);
+    REVISAR(solar_programa_predeterminar("nvim.desktop", "text/plain") == 0);
+    REVISAR(solar_programa_predeterminar("codium.desktop", "text/x-c++src") == 0);
+    REVISAR(solar_programas_para(uno, 1, 0, &ps) == 0);
+    REVISAR(ps.cantidad > 0 && !strcmp(ps.programas[0].id, "codium.desktop") && ps.programas[0].afinidad == SOLAR_AFINIDAD_DEFECTO);
+    solar_programas_liberar(&ps);
+    {
+        char mimeapps[PATH_MAX + 32];
+        snprintf(mimeapps, sizeof mimeapps, "%s/config/mimeapps.list", raiz);
+        char *t = leer_archivo(mimeapps, 1 << 16, NULL);
+        REVISAR(t && strstr(t, "[Default Applications]") && strstr(t, "text/x-c++src=codium.desktop;"));
+        REVISAR(t && strstr(t, "text/plain=nvim.desktop;"));
+        /* sin líneas repetidas */
+        int veces = 0;
+        for (const char *q = t; q && (q = strstr(q, "text/x-c++src=")); q++) veces++;
+        REVISAR(veces == 2);   /* una en Default, otra en Added */
+        free(t);
+    }
+
+    /* Lanzar sigue la línea Exec (%f con comillas) */
+    REVISAR(solar_programas_para(uno, 1, 0, &ps) == 0);
+    const SolarPrograma *cop = NULL;
+    for (size_t i = 0; i < ps.cantidad; i++) if (!strcmp(ps.programas[i].id, "copiador.desktop")) cop = &ps.programas[i];
+    REVISAR(cop && solar_programa_lanzar(cop, uno, 1, NULL) == 0);
+    REVISAR(esperar_archivo(copia, 3000));
+    solar_programas_liberar(&ps);
+}
+
+static void prueba_sonido(void)
+{
+    SECCION("efectos de sonido");
+    size_t tam = 0;
+    char *mp3 = leer_archivo("../recursos/sonidos/click.mp3", 4u << 20, &tam);
+    REVISAR(mp3 != NULL);
+    if (!mp3) return;
+    REVISAR(solar_sonido_cargar(0, (const uint8_t *)mp3, tam) == 0);
+    double d = solar_sonido_duracion(0);
+    REVISAR(d > 0.05 && d < 0.5);          /* sin el segundo de silencio final */
+    REVISAR(solar_sonido_cargar(1, (const uint8_t *)"no es mp3", 9) == EINVAL);
+    REVISAR(solar_sonido_cargar(99, (const uint8_t *)mp3, tam) == EINVAL);
+    int r = solar_sonido_reproducir(0, 0.0f);
+    REVISAR(r == 0);
+    r = solar_sonido_reproducir(0, 0.1f);
+    printf("    (salida de audio: %s)\n", *solar_sonido_salida() ? solar_sonido_salida() : "ninguna");
+    REVISAR(r == 0 || r == ENOTSUP);
+    usleep(400000);
+    free(mp3);
+}
+
 int main(void)
 {
     char plantilla[] = "/tmp/solar-pruebas-XXXXXX";
@@ -559,6 +720,12 @@ int main(void)
     setenv("XDG_DATA_HOME", var, 1);
     snprintf(var, sizeof var, "%s/config", raiz);
     setenv("XDG_CONFIG_HOME", var, 1);
+    snprintf(var, sizeof var, "%s/sistema", raiz);
+    setenv("XDG_DATA_DIRS", var, 1);
+    setenv("LANG", "es_MX.UTF-8", 1);
+    unsetenv("LC_ALL");
+    unsetenv("LC_MESSAGES");
+    unsetenv("XDG_CURRENT_DESKTOP");
     printf("☀ Pruebas del núcleo de Solar %s (en %s)\n", solar_version(), raiz);
 
     prueba_natural();
@@ -572,6 +739,8 @@ int main(void)
     prueba_temas();
     prueba_procesos();
     prueba_dispositivos_vigilante();
+    prueba_programas();
+    prueba_sonido();
 
     eliminar_arbol(raiz, NULL, NULL);
     for (size_t i = 0; i < en_pozo; i++) free(pozo[i]);
