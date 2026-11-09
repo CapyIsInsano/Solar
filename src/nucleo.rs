@@ -942,6 +942,11 @@ pub struct Config {
     pub terminal: String,
     pub mostrar_usb: bool,
     pub mostrar_discos_internos: bool,
+    pub sonidos: bool,
+    pub volumen: f32,
+    pub animaciones: bool,
+    pub buscar_actualizaciones: bool,
+    pub repo_actualizaciones: String,
     pub lugares: Vec<Lugar>,
     pub atajos: Vec<(String, String)>,
 }
@@ -990,6 +995,11 @@ impl Config {
             terminal: unsafe { texto_de(c.terminal) },
             mostrar_usb: c.mostrar_usb != 0,
             mostrar_discos_internos: c.mostrar_discos_internos != 0,
+            sonidos: c.sonidos != 0,
+            volumen: c.volumen as f32,
+            animaciones: c.animaciones != 0,
+            buscar_actualizaciones: c.buscar_actualizaciones != 0,
+            repo_actualizaciones: unsafe { texto_de(c.repo_actualizaciones) },
             lugares,
             atajos,
         }
@@ -1019,6 +1029,7 @@ impl Config {
         let tema = ctexto(&self.tema);
         let fuente = ctexto(&self.fuente);
         let terminal = ctexto(&self.terminal);
+        let repo = ctexto(&self.repo_actualizaciones);
         let lugares_c: Vec<(CString, CString, CString)> = self
             .lugares
             .iter()
@@ -1059,6 +1070,11 @@ impl Config {
             terminal: terminal.as_ptr() as *mut c_char,
             mostrar_usb: self.mostrar_usb as i32,
             mostrar_discos_internos: self.mostrar_discos_internos as i32,
+            sonidos: self.sonidos as i32,
+            volumen: self.volumen as f64,
+            animaciones: self.animaciones as i32,
+            buscar_actualizaciones: self.buscar_actualizaciones as i32,
+            repo_actualizaciones: repo.as_ptr() as *mut c_char,
             lugares: lugares.as_mut_ptr(),
             n_lugares: lugares.len(),
             atajos: atajos.as_mut_ptr(),
@@ -1282,4 +1298,111 @@ mod pruebas {
         assert_eq!(temas.len(), 9);
         assert_eq!(temas[0].c(ColorTema::Acento), Color32::from_rgb(0xF9, 0x73, 0x16));
     }
+}
+
+// ======================================================================
+//  Temas renombrados, sonido y programas
+// ======================================================================
+
+/// Id vigente de un tema con nombre viejo ("solar" → "sol"…).
+pub fn tema_id_actual(id: &str) -> String {
+    let c = ctexto(id);
+    unsafe { texto_de(ffi::solar_tema_id_actual(c.as_ptr())) }
+}
+
+pub fn sonido_cargar(id: i32, mp3: &[u8]) -> Result<(), ErrorSolar> {
+    resultado(unsafe { ffi::solar_sonido_cargar(id, mp3.as_ptr(), mp3.len()) })
+}
+
+pub fn sonido_reproducir(id: i32, volumen: f32) {
+    unsafe { ffi::solar_sonido_reproducir(id, volumen) };
+}
+
+/// "PulseAudio / PipeWire", "ALSA" o "" si no hay por dónde sonar.
+pub fn sonido_salida() -> String {
+    unsafe { texto_de(ffi::solar_sonido_salida()) }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Afinidad {
+    Otro = 0,
+    Padre = 1,
+    Exacta = 2,
+    Predeterminado = 3,
+}
+
+/// Un programa instalado (de su lanzador .desktop).
+#[derive(Clone, Debug)]
+pub struct Programa {
+    pub id: String,
+    pub archivo: String,
+    pub nombre: String,
+    pub descripcion: String,
+    pub icono: String,
+    pub categorias: String,
+    pub terminal: bool,
+    pub afinidad: Afinidad,
+}
+
+pub struct ListaProgramas {
+    pub programas: Vec<Programa>,
+    pub mime: String,
+}
+
+pub fn programas_para(rutas: &[PathBuf], incluir_todos: bool) -> Result<ListaProgramas, ErrorSolar> {
+    let (_c, p) = arreglo(rutas);
+    let mut s: ffi::SolarProgramas = unsafe { std::mem::zeroed() };
+    resultado(unsafe { ffi::solar_programas_para(p.as_ptr(), p.len(), incluir_todos as i32, &mut s) })?;
+    let mut v = Vec::with_capacity(s.cantidad);
+    for i in 0..s.cantidad {
+        let x = unsafe { &*s.programas.add(i) };
+        v.push(Programa {
+            id: unsafe { texto_de(x.id) },
+            archivo: unsafe { texto_de(x.archivo) },
+            nombre: unsafe { texto_de(x.nombre) },
+            descripcion: unsafe { texto_de(x.descripcion) },
+            icono: unsafe { texto_de(x.icono) },
+            categorias: unsafe { texto_de(x.categorias) },
+            terminal: x.terminal != 0,
+            afinidad: match x.afinidad {
+                3 => Afinidad::Predeterminado,
+                2 => Afinidad::Exacta,
+                1 => Afinidad::Padre,
+                _ => Afinidad::Otro,
+            },
+        });
+    }
+    let mime = unsafe { texto_de(s.mime) };
+    unsafe { ffi::solar_programas_liberar(&mut s) };
+    Ok(ListaProgramas { programas: v, mime })
+}
+
+pub fn programa_lanzar(p: &Programa, rutas: &[PathBuf], terminal: &str) -> Result<(), ErrorSolar> {
+    let id = ctexto(&p.id);
+    let archivo = ctexto(&p.archivo);
+    let c = ffi::SolarPrograma {
+        id: id.as_ptr() as *mut c_char,
+        archivo: archivo.as_ptr() as *mut c_char,
+        nombre: ptr::null_mut(),
+        descripcion: ptr::null_mut(),
+        icono: ptr::null_mut(),
+        categorias: ptr::null_mut(),
+        terminal: p.terminal as i32,
+        afinidad: p.afinidad as i32,
+    };
+    let (_r, pr) = arreglo(rutas);
+    let t = ctexto(terminal);
+    resultado(unsafe { ffi::solar_programa_lanzar(&c, pr.as_ptr(), pr.len(), t.as_ptr()) }).map_err(|e| {
+        if e.codigo == 2 && p.terminal {
+            ErrorSolar { codigo: e.codigo, mensaje: format!("«{}» se abre en una terminal y no encontré ninguna. Elige una en Ajustes → Archivos.", p.nombre) }
+        } else {
+            ErrorSolar { codigo: e.codigo, mensaje: format!("No se pudo abrir con «{}»: {}", p.nombre, e.mensaje) }
+        }
+    })
+}
+
+pub fn programa_predeterminar(id: &str, mime: &str) -> Result<(), ErrorSolar> {
+    let i = ctexto(id);
+    let m = ctexto(mime);
+    resultado(unsafe { ffi::solar_programa_predeterminar(i.as_ptr(), m.as_ptr()) })
 }
