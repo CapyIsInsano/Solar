@@ -53,7 +53,8 @@ Primera versión de Solar.
   clic derecho con íconos, diálogo con búsqueda y «Usar siempre este
   programa». Los programas de terminal (Neovim, Vim…) se abren en tu
   terminal.
-- **Logo en la barra de tareas**: ícono de la ventana (X11) y, si
+- **Logo en la barra de tareas**: ícono con poco margen (se ve grande en
+  docks y barras), ícono de la ventana (X11) y, si
   Solar no está instalado, un lanzador e íconos en `~/.local/share` para que
   Wayland (Niri, Hyprland, KDE, GNOME) lo encuentre.
 - **Animaciones**: entrada de los archivos al abrir una carpeta, íconos que
