@@ -24,6 +24,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Commit del que se compiló este Solar ("" si no se sabe; lo pone build.rs)
+pub const COMMIT: &str = env!("SOLAR_COMMIT");
+
+/// "0.1.0-alpha · 1a2b3c4" (o solo la versión si no se sabe el commit)
+pub fn version_completa() -> String {
+    if COMMIT.len() >= 7 { format!("{VERSION} · {}", &COMMIT[..7]) } else { VERSION.to_string() }
+}
 
 // ----------------------------------------------------------------------
 //  Versiones
@@ -106,7 +113,13 @@ pub struct Version {
     /// URL de un binario para esta arquitectura, si la versión lo trae
     pub binario: Option<(String, String)>, // (nombre, url)
     pub fuente: String,
+    pub repo: String,
+    /// Si son commits nuevos sin versión publicada: la rama (p. ej. "main")
+    pub rama: Option<String>,
+    /// Commit exacto que se va a compilar (si se sabe)
+    pub commit: Option<String>,
 }
+
 
 #[derive(Clone, Debug)]
 pub enum Estado {
@@ -254,6 +267,9 @@ pub fn version_mas_nueva(repo: &str) -> Result<Option<Version>, String> {
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("https://github.com/{repo}/archive/refs/tags/{etiqueta}.tar.gz")),
             etiqueta,
+            repo: repo.to_string(),
+            rama: None,
+            commit: None,
         });
     }
     if versiones.is_empty() {
@@ -272,16 +288,77 @@ pub fn version_mas_nueva(repo: &str) -> Result<Option<Version>, String> {
                     .map(str::to_string)
                     .unwrap_or_else(|| format!("https://github.com/{repo}/archive/refs/tags/{etiqueta}.tar.gz")),
                 etiqueta: etiqueta.to_string(),
+                repo: repo.to_string(),
+                rama: None,
+                commit: t["commit"]["sha"].as_str().map(str::to_string),
             });
         }
     }
     let actual = NumeroVersion::leer(VERSION).expect("la versión de Cargo.toml es válida");
-    Ok(versiones
+    let nueva = versiones
         .into_iter()
         .filter_map(|v| NumeroVersion::leer(&v.etiqueta).map(|n| (n, v)))
         .filter(|(n, _)| *n > actual)
         .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|(_, v)| v))
+        .map(|(_, v)| v);
+    if nueva.is_some() {
+        return Ok(nueva);
+    }
+    // Sin versión nueva publicada: ¿hay commits nuevos en la rama principal?
+    commits_nuevos(repo)
+}
+
+/// Compara el commit de este Solar con el último de la rama principal.
+fn commits_nuevos(repo: &str) -> Result<Option<Version>, String> {
+    let info = curl_json(&format!("{}/repos/{repo}", api()))?;
+    let rama = info["default_branch"].as_str().unwrap_or("main").to_string();
+    let ultimo = curl_json(&format!("{}/repos/{repo}/commits/{rama}", api()))?;
+    let Some(sha) = ultimo["sha"].as_str().map(str::to_string) else {
+        return Ok(None);
+    };
+    if COMMIT.len() >= 7 && (sha.starts_with(COMMIT) || COMMIT.starts_with(&sha)) {
+        return Ok(None);
+    }
+    let primera_linea = |m: &serde_json::Value| m.as_str().unwrap_or_default().lines().next().unwrap_or_default().trim().to_string();
+    let mut cuantos = None;
+    let mut notas = Vec::new();
+    if COMMIT.len() >= 7 {
+        // Si tu commit no está en GitHub (lo compilaste con cambios tuyos) o
+        // vas adelante, no hay nada que ofrecer
+        let Ok(c) = curl_json(&format!("{}/repos/{repo}/compare/{COMMIT}...{sha}", api())) else {
+            return Ok(None);
+        };
+        if c["status"].as_str() != Some("ahead") {
+            return Ok(None);
+        }
+        cuantos = c["ahead_by"].as_u64();
+        for m in c["commits"].as_array().into_iter().flatten().rev().take(30) {
+            let l = primera_linea(&m["commit"]["message"]);
+            if !l.is_empty() {
+                notas.push(format!("- {l}"));
+            }
+        }
+    }
+    if notas.is_empty() {
+        notas.push(format!("- {}", primera_linea(&ultimo["commit"]["message"])));
+    }
+    let corto = &sha[..sha.len().min(7)];
+    Ok(Some(Version {
+        etiqueta: format!("{}@{corto}", rama.replace('/', "-")),
+        nombre: match cuantos {
+            Some(1) => format!("1 commit nuevo en {rama}"),
+            Some(n) => format!("{n} commits nuevos en {rama}"),
+            None => format!("cambios nuevos en {rama} ({corto})"),
+        },
+        notas: notas.join("\n"),
+        fecha: ultimo["commit"]["committer"]["date"].as_str().unwrap_or_default().chars().take(10).collect(),
+        previa: false,
+        binario: None,
+        fuente: format!("{}/repos/{repo}/tarball/{sha}", api()),
+        repo: repo.to_string(),
+        rama: Some(rama),
+        commit: Some(sha),
+    }))
 }
 
 // ----------------------------------------------------------------------
@@ -469,7 +546,14 @@ fn conseguir_binario(
     let destino = cache.join("compilacion");
     let total_previo = std::fs::read_to_string(cache.join("crates")).ok().and_then(|t| t.trim().parse::<f32>().ok()).unwrap_or(260.0);
     paso("Compilando… (la primera vez tarda unos minutos)", Some(0.0), "");
+    // Que el Solar nuevo sepa de qué commit sale (para la próxima revisión)
+    let commit = v.commit.clone().or_else(|| {
+        curl_json(&format!("{}/repos/{}/commits/{}", api(), v.repo, v.etiqueta))
+            .ok()
+            .and_then(|j| j["sha"].as_str().map(str::to_string))
+    });
     let mut c = Command::new("cargo")
+        .env("SOLAR_COMMIT", commit.unwrap_or_default())
         .args(["build", "--release", "--color", "never"])
         .current_dir(&raiz)
         .env("CARGO_TARGET_DIR", &destino)

@@ -880,7 +880,7 @@ impl Solar {
         ui_util::titulo(ui, p, "Actualizaciones");
         ui.label(
             RichText::new(format!(
-                "Solar revisa las versiones publicadas en GitHub ({}) y se actualiza solo, sin desinstalar ni reinstalar.",
+                "Solar revisa en GitHub ({}) si hay versiones publicadas o commits nuevos en la rama principal, y se actualiza solo, sin desinstalar ni reinstalar.",
                 self.config.repo_actualizaciones
             ))
             .color(p.texto_tenue),
@@ -897,17 +897,27 @@ impl Solar {
             .show(ui, |ui| {
                 ui.set_width(ancho - 30.0);
                 let (glifo, color, titulo, detalle): (&str, Color32, String, String) = match &estado {
-                    Estado::Nada => (ph::SUN, p.acento, format!("Tienes Solar {}", actualizar::VERSION), "Aún no he revisado si hay algo nuevo.".into()),
+                    Estado::Nada => (ph::SUN, p.acento, format!("Tienes Solar {}", actualizar::version_completa()), "Aún no he revisado si hay algo nuevo.".into()),
                     Estado::Buscando => (ph::CLOUD_ARROW_DOWN, p.acento, "Buscando en GitHub…".into(), String::new()),
-                    Estado::AlDia => (ph::CHECK_CIRCLE, p.exito, format!("Estás al día ({})", actualizar::VERSION), "No hay versiones más nuevas.".into()),
+                    Estado::AlDia => (ph::CHECK_CIRCLE, p.exito, format!("Estás al día ({})", actualizar::version_completa()), "No hay versiones ni commits más nuevos.".into()),
                     Estado::Disponible(v) => (
                         ph::GIFT,
                         p.acento,
-                        format!("Hay una versión nueva: {}{}", v.nombre, if v.previa { " (de prueba)" } else { "" }),
+                        if v.rama.is_some() {
+                            format!("Hay {}", v.nombre)
+                        } else {
+                            format!("Hay una versión nueva: {}{}", v.nombre, if v.previa { " (de prueba)" } else { "" })
+                        },
                         format!(
                             "Tienes la {}.{}{}",
-                            actualizar::VERSION,
-                            if v.fecha.is_empty() { String::new() } else { format!(" Publicada el {}.", v.fecha) },
+                            actualizar::version_completa(),
+                            if v.fecha.is_empty() {
+                                String::new()
+                            } else if v.rama.is_some() {
+                                format!(" Último cambio: {}.", v.fecha)
+                            } else {
+                                format!(" Publicada el {}.", v.fecha)
+                            },
                             if v.binario.is_some() { " Trae el programa listo: solo se descarga." } else { " Se compilará desde el código (necesitas cargo)." }
                         ),
                     ),
@@ -1041,7 +1051,7 @@ impl Solar {
             ui.vertical(|ui| {
                 ui.add_space(14.0);
                 ui.label(RichText::new("Solar").size(26.0).strong());
-                ui.label(RichText::new(format!("Versión {}", nucleo::version())).color(p.texto_tenue));
+                ui.label(RichText::new(format!("Versión {}", crate::actualizar::version_completa())).color(p.texto_tenue));
                 ui.label(RichText::new("Núcleo en C · Interfaz en Rust · Configuración en Lua").small().color(p.texto_tenue));
                 ui.label(RichText::new(format!("{}  Por ahora, exclusivo de Linux", ph::LINUX_LOGO)).small().color(p.texto_tenue));
             });

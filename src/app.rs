@@ -1379,7 +1379,11 @@ impl Solar {
                     if !en_pestana {
                         sonido::pedir(Sonido::Efecto);
                         self.avisar(
-                            format!("Hay una versión nueva de Solar: {}. Instálala en Ajustes → Actualizaciones.", v.etiqueta),
+                            if v.rama.is_some() {
+                                format!("Solar tiene {} en GitHub. Instálalos en Ajustes → Actualizaciones.", v.nombre)
+                            } else {
+                                format!("Hay una versión nueva de Solar: {}. Instálala en Ajustes → Actualizaciones.", v.etiqueta)
+                            },
                             TipoAviso::Info,
                         );
                     }
@@ -1410,7 +1414,7 @@ impl Solar {
             actualizar::Estado::AlDia if self.busqueda_manual && self.aviso_actualizacion.as_deref() != Some("aldia") => {
                 self.aviso_actualizacion = Some("aldia".into());
                 if !en_pestana {
-                    self.avisar(format!("Ya tienes la versión más nueva ({}).", actualizar::VERSION), TipoAviso::Info);
+                    self.avisar(format!("Ya tienes lo más nuevo ({}).", actualizar::version_completa()), TipoAviso::Info);
                 }
             }
             _ => {}

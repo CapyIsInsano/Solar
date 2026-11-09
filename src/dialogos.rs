@@ -1067,7 +1067,7 @@ impl Solar {
             let (rect, _) = ui.allocate_exact_size(vec2(132.0, 132.0), Sense::hover());
             iconos::logo(ui.painter(), rect);
             ui.label(RichText::new("Solar").size(28.0).strong().color(p.texto));
-            ui.label(RichText::new(format!("Versión {}", nucleo::version())).color(p.texto_tenue));
+            ui.label(RichText::new(format!("Versión {}", crate::actualizar::version_completa())).color(p.texto_tenue));
             ui.add_space(6.0);
             ui.label(RichText::new("Gestor de archivos").color(p.texto));
             ui.label(

@@ -60,7 +60,7 @@ fn main() -> eframe::Result {
                 return Ok(());
             }
             Some("-v" | "--version") => {
-                println!("Solar {} (núcleo {})", env!("CARGO_PKG_VERSION"), nucleo::version());
+                println!("Solar {} (núcleo {})", actualizar::version_completa(), nucleo::version());
                 return Ok(());
             }
             Some("--config") => {
