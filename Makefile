@@ -20,6 +20,7 @@ BINDIR   := $(DESTDIR)$(PREFIX)/bin
 APPSDIR  := $(DESTDIR)$(PREFIX)/share/applications
 ICONDIR  := $(DESTDIR)$(PREFIX)/share/icons/hicolor
 DATADIR  := $(DESTDIR)$(PREFIX)/share/solar
+TAMANOS  := 16 24 32 48 64 128 256 512
 
 .PHONY: all compilar instalar desinstalar caches pruebas pruebas-nucleo limpiar \
         install uninstall test clean
@@ -36,7 +37,8 @@ instalar: $(BIN)
 	install -Dm755 $(BIN) $(BINDIR)/solar
 	install -Dm644 recursos/solar.desktop $(APPSDIR)/solar.desktop
 	install -Dm644 recursos/solar.svg $(ICONDIR)/scalable/apps/solar.svg
-	install -Dm644 recursos/solar-256.png $(ICONDIR)/256x256/apps/solar.png
+	for t in $(TAMANOS); do \
+		install -Dm644 recursos/iconos/solar-$$t.png $(ICONDIR)/$${t}x$$t/apps/solar.png; done
 	install -Dm644 config/config.lua $(DATADIR)/config.lua
 	install -Dm644 config/temas/ejemplo.lua $(DATADIR)/temas/ejemplo.lua
 	@$(MAKE) -s caches
@@ -46,7 +48,8 @@ instalar: $(BIN)
 
 desinstalar:
 	rm -f $(BINDIR)/solar $(APPSDIR)/solar.desktop
-	rm -f $(ICONDIR)/scalable/apps/solar.svg $(ICONDIR)/256x256/apps/solar.png
+	rm -f $(ICONDIR)/scalable/apps/solar.svg
+	for t in $(TAMANOS); do rm -f $(ICONDIR)/$${t}x$$t/apps/solar.png; done
 	rm -rf $(DATADIR)
 	@$(MAKE) -s caches
 	@echo "Solar se desinstaló. Tu configuración sigue en ~/.config/solar"
