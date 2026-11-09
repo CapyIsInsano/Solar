@@ -12,12 +12,13 @@ use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=nucleo/src");
     println!("cargo:rerun-if-changed=nucleo/include");
+    println!("cargo:rerun-if-changed=nucleo/terceros");
     println!("cargo:rerun-if-changed=build.rs");
 
     let objetivo = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if objetivo != "linux" {
         panic!(
-            "Solar v0.1.0-alpha solo funciona en Linux por ahora \
+            "Solar por ahora es exclusivo de Linux \
              (el núcleo usa inotify, /proc y /sys). ¡Los ports llegarán!"
         );
     }
@@ -46,6 +47,10 @@ fn main() {
     let lua = preparar_lua(&mut nucleo);
     nucleo.compile("solar_nucleo");
     lua.anunciar();
+    // dlopen (sonido): en glibc moderna está en libc, pero así también
+    // enlaza con glibc viejita
+    println!("cargo:rustc-link-lib=dl");
+    println!("cargo:rustc-link-lib=pthread");
 }
 
 /// Cómo enlazar Lua (se anuncia a cargo después de compilar el núcleo).
