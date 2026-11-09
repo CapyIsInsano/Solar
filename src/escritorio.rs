@@ -23,7 +23,7 @@ pub const ICONOS: [(u32, &[u8]); 8] = [
     (256, include_bytes!("../recursos/iconos/solar-256.png")),
     (512, include_bytes!("../recursos/iconos/solar-512.png")),
 ];
-pub const SVG: &[u8] = include_bytes!("../recursos/solar.svg");
+pub const SVG: &[u8] = include_bytes!("../recursos/iconos/solar.svg");
 const MARCA: &str = "X-Solar-Generado=true";
 
 /// ~/.local/share
