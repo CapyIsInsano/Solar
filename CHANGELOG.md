@@ -13,7 +13,8 @@ Primera versión de Solar.
   con las copias y se olvida al eliminarla para siempre.
 
 ### Apariencia y Ajustes
-- 9 temas integrados y temas propios en Lua con herencia (`base = "…"`);
+- 9 temas integrados (Sol, Aurora, Eclipse, Nebulosa, Venus, Neptuno,
+  Marte, Mercurio y Luna) y temas propios en Lua con herencia (`base = "…"`);
   editor de temas en Ajustes que guarda archivos `.lua`.
 - Fondo transparente con opacidad ajustable, escala de la interfaz y
   fuente integrada, del sistema o desde un archivo.
@@ -36,7 +37,31 @@ Primera versión de Solar.
 - Memorias USB y tarjetas SD con espacio libre, montar y expulsar (udisks2).
 - La vista se actualiza sola (inotify) y avisa si se desconecta la unidad.
 
+### Sonido, actualizaciones y escritorio
+- **Efectos de sonido** (los de Capyro): inicio, clic, efecto, listo,
+  retracción y error. Se decodifican con minimp3 y suenan por
+  PulseAudio/PipeWire o ALSA (cargados con dlopen: si no hay ninguno, Solar
+  simplemente no suena). Interruptor, volumen y botón «Probar» en Ajustes.
+- **Actualizaciones desde GitHub**: *Ajustes → Actualizaciones* busca
+  releases (o etiquetas) más nuevas en el repo, descarga el binario si la
+  versión lo trae o compila el código con cargo, y reemplaza el programa sin
+  desinstalar (con pkexec si está en una carpeta del sistema). Revisión
+  automática una vez al día, que se puede apagar.
+- **Borrar caché** (`~/.cache/solar`: descargas y compilaciones).
+- **Abrir con… detecta tus programas**: tipos MIME con shared-mime-info,
+  lanzadores `.desktop` (también Flatpak) y `mimeapps.list`. Submenú en el
+  clic derecho con íconos, diálogo con búsqueda y «Usar siempre este
+  programa». Los programas de terminal (Neovim, Vim…) se abren en tu
+  terminal.
+- **Logo en la barra de tareas**: ícono de la ventana (X11) y, si
+  Solar no está instalado, un lanzador e íconos en `~/.local/share` para que
+  Wayland (Niri, Hyprland, KDE, GNOME) lo encuentre.
+- **Animaciones**: entrada de los archivos al abrir una carpeta, íconos que
+  se levantan al pasar el mouse, ventanas y diálogos que aparecen suavemente,
+  avisos que se deslizan y cambio de tema con transición. Se pueden apagar.
+- Queda claro en todos lados: **Solar por ahora es exclusivo de Linux**.
+
 ### Núcleo en C
 - API en `nucleo/include/solar.h`, Lua 5.4 embebido en un entorno seguro
   (sin io/os.execute/require, con límite de memoria e instrucciones).
-- 176 revisiones de pruebas con AddressSanitizer y UBSan.
+- 218 revisiones de pruebas con AddressSanitizer y UBSan.
