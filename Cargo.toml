@@ -18,6 +18,8 @@ eframe = { version = "0.36", default-features = false, features = ["accesskit", 
 # bordes de ventana dibujados por el cliente cuando no se usa la barra de Solar)
 winit = "0.30"
 egui-phosphor = { version = "0.14", default-features = false, features = ["regular", "fill"] }
+serde_json = "1"
+resvg = { version = "0.45", default-features = false }
 
 [build-dependencies]
 cc = "1"
