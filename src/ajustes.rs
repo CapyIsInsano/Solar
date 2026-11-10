@@ -657,7 +657,7 @@ impl Solar {
             cambio |= interruptor(ui, p, &mut self.config.mostrar_discos_internos).changed();
         });
         if antes != self.config.mostrar_discos_internos {
-            let _ = self.vigia.send(crate::tareas::ComandoVigia::Dispositivos { incluir_internos: self.config.mostrar_discos_internos });
+            self.vigia.enviar(crate::tareas::ComandoVigia::Dispositivos { incluir_internos: self.config.mostrar_discos_internos });
         }
         if cambio {
             self.config_cambio();
