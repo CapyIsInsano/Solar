@@ -582,7 +582,7 @@ impl Solar {
             categoria,
             es_enlace: info.is_some_and(|i| i.es_enlace),
             es_oculto: nombre.starts_with('.'),
-            descripcion: info.map(|i| i.descripcion.clone()).unwrap_or_default(),
+            descripcion: info.map(|i| i.descripcion.as_str()).unwrap_or_default().into(),
             estilo: self.estilo_de(ruta),
         }
     }
@@ -602,7 +602,7 @@ impl Solar {
             ui.vertical(|ui| {
                 let titulo = if e.rutas.len() == 1 { entrada.nombre.clone() } else { formato::elementos(e.rutas.len()) };
                 ui.add(egui::Label::new(RichText::new(titulo).size(18.0).strong().color(p.texto)).wrap());
-                let sub = if e.rutas.len() == 1 { entrada.descripcion.clone() } else { "Selección múltiple".into() };
+                let sub = if e.rutas.len() == 1 { entrada.descripcion.to_string() } else { "Selección múltiple".into() };
                 ui.label(RichText::new(sub).color(p.texto_tenue));
             });
         });
@@ -1147,7 +1147,23 @@ impl Solar {
         if let Some(i) = quitar {
             self.notificaciones.remove(i);
         }
-        ctx.request_repaint_after(Duration::from_millis(50));
+        // Solo se redibuja seguido mientras un aviso entra o se desvanece;
+        // mientras está quieto, Solar duerme hasta que toque desvanecerlo
+        let mut siguiente = Duration::from_secs(60);
+        for n in &self.notificaciones {
+            let t = n.creada.elapsed();
+            let movimiento = (t < Duration::from_millis(300)) || (t >= Duration::from_millis(3600));
+            if movimiento {
+                siguiente = Duration::ZERO;
+                break;
+            }
+            siguiente = siguiente.min(Duration::from_millis(3600) - t);
+        }
+        if siguiente.is_zero() {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(siguiente);
+        }
     }
 
     pub(crate) fn ventana_tareas(&mut self, ctx: &egui::Context) {

@@ -12,9 +12,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub enum Mensaje {
+    /// ¿Está vacía la papelera? (lo revisa el vigía: puede tocar discos de red)
+    EstadoPapelera(bool),
     Listado {
         generacion: u64,
-        resultado: Result<Vec<Entrada>, nucleo::ErrorSolar>,
+        resultado: Result<Vec<std::sync::Arc<Entrada>>, nucleo::ErrorSolar>,
+        /// ruta → posición, armado aquí para no frenar la ventana
+        indice: std::collections::HashMap<PathBuf, usize>,
         espacio: Option<Espacio>,
     },
     Papelera {
@@ -56,7 +60,9 @@ pub fn listar(
     thread::Builder::new()
         .name("solar-listar".into())
         .spawn(move || {
+            let t = Instant::now();
             let resultado = nucleo::listar(&dir, orden, descendente, carpetas_primero).map(|mut v| {
+                crate::perfil::reportar(&format!("listar {} entradas", v.len()), t);
                 if let Ok(db) = carpetas.lock()
                     && db.cantidad() > 0
                 {
@@ -64,10 +70,15 @@ pub fn listar(
                         e.estilo = db.obtener(&e.ruta);
                     }
                 }
-                v
+                v.into_iter().map(std::sync::Arc::new).collect::<Vec<_>>()
             });
+            let indice = match &resultado {
+                Ok(v) => v.iter().enumerate().map(|(i, e)| (e.ruta.clone(), i)).collect(),
+                Err(_) => Default::default(),
+            };
             let espacio = nucleo::espacio(&dir);
-            let _ = tx.send(Mensaje::Listado { generacion, resultado, espacio });
+            crate::perfil::reportar("listar + índice + estilos + espacio", t);
+            let _ = tx.send(Mensaje::Listado { generacion, resultado, indice, espacio });
             ctx.request_repaint();
         })
         .ok();
@@ -90,26 +101,63 @@ pub fn listar_papelera(generacion: u64, tx: Sender<Mensaje>, ctx: egui::Context)
 
 pub enum ComandoVigia {
     Observar(Option<PathBuf>),
+    /// Revisar si la papelera está vacía y avisar
+    RevisarPapelera,
     Dispositivos { incluir_internos: bool },
 }
 
-pub fn iniciar_vigia(tx: Sender<Mensaje>, ctx: egui::Context, incluir_internos: bool) -> Sender<ComandoVigia> {
-    let (tx_cmd, rx_cmd) = std::sync::mpsc::channel();
-    thread::Builder::new()
-        .name("solar-vigia".into())
-        .spawn(move || vigia(rx_cmd, tx, ctx, incluir_internos))
-        .ok();
-    tx_cmd
+/// Para mandarle órdenes al vigía: además de mandar el mensaje, lo despierta
+/// (si no, seguiría dormido hasta el próximo cambio).
+#[derive(Clone)]
+pub struct CanalVigia {
+    tx: std::sync::mpsc::Sender<ComandoVigia>,
+    despertador: Option<nucleo::Despertador>,
 }
 
-fn vigia(rx: Receiver<ComandoVigia>, tx: Sender<Mensaje>, ctx: egui::Context, mut incluir_internos: bool) {
-    let mut vigilante = nucleo::Vigilante::nuevo();
+impl CanalVigia {
+    pub fn enviar(&self, c: ComandoVigia) {
+        if self.tx.send(c).is_ok()
+            && let Some(d) = &self.despertador
+        {
+            d.despertar();
+        }
+    }
+}
+
+pub fn iniciar_vigia(tx: Sender<Mensaje>, ctx: egui::Context, incluir_internos: bool) -> CanalVigia {
+    let (tx_cmd, rx_cmd) = std::sync::mpsc::channel();
+    let vigilante = nucleo::Vigilante::nuevo();
+    let despertador = vigilante.as_ref().map(|v| v.despertador());
+    thread::Builder::new()
+        .name("solar-vigia".into())
+        .spawn(move || vigia(vigilante, rx_cmd, tx, ctx, incluir_internos))
+        .ok();
+    CanalVigia { tx: tx_cmd, despertador }
+}
+
+/// Sin cambios, revisamos los discos cada tanto por si acaso (espacio libre
+/// que cambió por fuera, lectores de tarjetas…). Lo demás llega por eventos.
+const REVISION_DE_FONDO: Duration = Duration::from_secs(30);
+
+fn vigia(
+    mut vigilante: Option<nucleo::Vigilante>,
+    rx: Receiver<ComandoVigia>,
+    tx: Sender<Mensaje>,
+    ctx: egui::Context,
+    mut incluir_internos: bool,
+) {
     let mut previos: Option<Vec<Dispositivo>> = None;
     let mut ultimo = Instant::now() - Duration::from_secs(60);
+    // Revisiones extra después de que llega un disco: udev tarda un poco en
+    // dejar listos su nombre y su sistema de archivos
+    let mut extras: Vec<Instant> = Vec::new();
+    // Al empezar: cómo está la papelera
+    let mut revisar_papelera = true;
     loop {
         let mut forzar = false;
         loop {
             match rx.try_recv() {
+                Ok(ComandoVigia::RevisarPapelera) => revisar_papelera = true,
                 Ok(ComandoVigia::Observar(ruta)) => {
                     if let Some(v) = vigilante.as_mut() {
                         v.observar(ruta.as_deref());
@@ -123,14 +171,21 @@ fn vigia(rx: Receiver<ComandoVigia>, tx: Sender<Mensaje>, ctx: egui::Context, mu
                 Err(TryRecvError::Disconnected) => return,
             }
         }
-        let mut cambios = match vigilante.as_mut() {
-            Some(v) => v.esperar(250),
-            None => {
-                thread::sleep(Duration::from_millis(250));
-                0
-            }
-        };
-        if cambios > 0 && cambios & nucleo::CAMBIO_CARPETA != 0 {
+        let mut cambios = 0;
+        if !forzar && !revisar_papelera {
+            let ahora = Instant::now();
+            let hasta = extras.iter().copied().min().unwrap_or(ultimo + REVISION_DE_FONDO).min(ultimo + REVISION_DE_FONDO);
+            let ms = hasta.saturating_duration_since(ahora).as_millis().clamp(1, 30_000) as i32;
+            cambios = match vigilante.as_mut() {
+                Some(v) => v.esperar(ms).max(0),
+                None => {
+                    // Sin inotify: revisamos como antes, cada 2 s
+                    thread::sleep(Duration::from_millis(ms.min(2000) as u64));
+                    0
+                }
+            };
+        }
+        if cambios & nucleo::CAMBIO_CARPETA != 0 {
             // Juntamos ráfagas (p. ej. al copiar muchos archivos)
             if let Some(v) = vigilante.as_mut() {
                 let fin = Instant::now() + Duration::from_millis(150);
@@ -143,16 +198,34 @@ fn vigia(rx: Receiver<ComandoVigia>, tx: Sender<Mensaje>, ctx: egui::Context, mu
             }
         }
         let mut avisar = false;
-        if cambios > 0 && cambios & nucleo::CAMBIO_CARPETA != 0 {
+        if cambios & nucleo::CAMBIO_CARPETA != 0 {
             avisar |= tx.send(Mensaje::CambioCarpeta).is_ok();
         }
-        if cambios > 0 && cambios & nucleo::CAMBIO_PAPELERA != 0 {
+        if cambios & nucleo::CAMBIO_PAPELERA != 0 {
             avisar |= tx.send(Mensaje::CambioPapelera).is_ok();
+            revisar_papelera = true;
         }
-        let montajes = cambios > 0 && cambios & nucleo::CAMBIO_MONTAJES != 0;
-        if forzar || montajes || ultimo.elapsed() > Duration::from_secs(2) {
+        if revisar_papelera {
+            revisar_papelera = false;
+            avisar |= tx.send(Mensaje::EstadoPapelera(nucleo::papelera_vacia())).is_ok();
+        }
+        let ahora = Instant::now();
+        if cambios & nucleo::CAMBIO_DISPOSITIVOS != 0 {
+            extras = vec![ahora + Duration::from_millis(700), ahora + Duration::from_millis(2500)];
+        }
+        let toca_extra = extras.iter().any(|t| *t <= ahora);
+        extras.retain(|t| *t > ahora);
+        let revisar = forzar
+            || toca_extra
+            || cambios & (nucleo::CAMBIO_MONTAJES | nucleo::CAMBIO_DISPOSITIVOS) != 0
+            // copiar o borrar cambia el espacio libre (sin revisar más de 1 vez cada 2 s)
+            || (cambios & nucleo::CAMBIO_CARPETA != 0 && ultimo.elapsed() > Duration::from_secs(2))
+            || ultimo.elapsed() >= REVISION_DE_FONDO
+            || vigilante.is_none() && ultimo.elapsed() > Duration::from_secs(2);
+        if revisar {
             ultimo = Instant::now();
             let d = nucleo::dispositivos(incluir_internos);
+            crate::perfil::reportar(&format!("discos revisados ({} encontrados)", d.len()), ultimo);
             if previos.as_ref() != Some(&d) {
                 previos = Some(d.clone());
                 if tx.send(Mensaje::Dispositivos(d)).is_err() {

@@ -113,6 +113,16 @@ pub fn permisos(modo: u32) -> String {
 }
 
 /// Minúsculas y sin acentos, para buscar ("Música" -> "musica").
+/// Como `plegar`, pero devuelve un texto vacío (sin reservar memoria) si el
+/// nombre ya está plegado, que es lo más común (minúsculas sin acentos).
+pub fn plegar_si_hace_falta(s: &str) -> String {
+    if s.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+        String::new()
+    } else {
+        plegar(s)
+    }
+}
+
 pub fn plegar(s: &str) -> String {
     s.chars()
         .flat_map(|c| c.to_lowercase())
@@ -133,6 +143,13 @@ pub fn plegar(s: &str) -> String {
 #[cfg(test)]
 mod pruebas {
     use super::*;
+
+    #[test]
+    fn plegado_solo_cuando_hace_falta() {
+        assert_eq!(plegar_si_hace_falta("archivo_01.txt"), "");
+        assert_eq!(plegar_si_hace_falta("Música"), "musica");
+        assert_eq!(plegar_si_hace_falta("README"), "readme");
+    }
 
     #[test]
     fn tamanos() {

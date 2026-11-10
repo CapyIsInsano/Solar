@@ -22,18 +22,19 @@ const ALTO_FILA: f32 = 30.0;
 
 /// Lo que se necesita para dibujar un elemento (copiado para no pelear con el
 /// verificador de préstamos mientras se ejecutan acciones).
+/// Lo que se dibuja de un archivo: apunta a la entrada compartida (Arc), así
+/// que crearlo en cada cuadro no copia nada.
 struct Item {
-    ruta: PathBuf,
-    nombre: String,
-    tipo: TipoEntrada,
-    entrada: Entrada,
+    entrada: Arc<Entrada>,
 }
 
-impl Item {
-    fn es_carpeta(&self) -> bool {
-        self.tipo == TipoEntrada::Carpeta
+impl std::ops::Deref for Item {
+    type Target = Entrada;
+    fn deref(&self) -> &Entrada {
+        &self.entrada
     }
 }
+
 
 fn texto_ajustado(painter: &egui::Painter, texto: &str, ancho: f32, filas: usize, tam: f32, color: Color32, centrado: bool) -> Arc<Galley> {
     let mut job = LayoutJob::simple(texto.to_string(), FontId::proportional(tam), color, ancho.max(10.0));
@@ -54,7 +55,7 @@ fn pintar_galley_centrado(painter: &egui::Painter, centro_x: f32, y: f32, galley
 impl Solar {
     fn item(&self, indice_visible: usize) -> Item {
         let e = &self.entradas[self.visibles[indice_visible]];
-        Item { ruta: e.ruta.clone(), nombre: e.nombre.clone(), tipo: e.tipo, entrada: e.clone() }
+        Item { entrada: e.clone() }
     }
 
     fn cortado(&self, ruta: &PathBuf) -> bool {
@@ -107,9 +108,12 @@ impl Solar {
     pub(crate) fn pintar_icono(&self, painter: &egui::Painter, rect: Rect, e: &Entrada, alfa: f32) {
         match e.tipo {
             TipoEntrada::Carpeta => {
-                let estilo = e.estilo.clone().unwrap_or_default();
-                let color = estilo.color.unwrap_or(self.paleta.carpeta);
-                iconos::carpeta(painter, rect, color, Logotipo::de(estilo.icono.as_deref()), estilo.color_icono, alfa);
+                // Sin copiar el estilo: esto corre en cada cuadro por cada carpeta visible
+                let (color, icono, color_icono) = match &e.estilo {
+                    Some(s) => (s.color.unwrap_or(self.paleta.carpeta), s.icono.as_deref(), s.color_icono),
+                    None => (self.paleta.carpeta, None, None),
+                };
+                iconos::carpeta(painter, rect, color, Logotipo::de(icono), color_icono, alfa);
             }
             TipoEntrada::EnlaceRoto => iconos::archivo(painter, rect, e.categoria, &e.nombre, true, alfa),
             _ => iconos::archivo(painter, rect, e.categoria, &e.nombre, false, alfa),
@@ -294,7 +298,7 @@ impl Solar {
 
     fn tooltip(&self, ui: &mut Ui, e: &Entrada) {
         ui.label(RichText::new(&e.nombre).strong());
-        let mut detalle = e.descripcion.clone();
+        let mut detalle = e.descripcion.to_string();
         if e.tipo == TipoEntrada::Archivo {
             detalle.push_str(" · ");
             detalle.push_str(&formato::tamano(e.tamano));
@@ -544,7 +548,7 @@ impl Solar {
                 nueva.insert(self.entradas[i].ruta.clone());
             }
         }
-        self.seleccion = nueva;
+        self.seleccion.reemplazar(nueva);
         let pantalla = caja.translate(origen.to_vec2());
         ui.painter().rect(
             pantalla,

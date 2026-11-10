@@ -22,7 +22,9 @@ mod formato;
 mod fuentes;
 mod iconos;
 mod iconos_programas;
+mod memoria;
 mod nucleo;
+mod perfil;
 mod sonido;
 mod tareas;
 mod tema;
@@ -93,6 +95,9 @@ fn main() -> eframe::Result {
         }
     }
 
+    memoria::ajustar();
+    let arranque = std::time::Instant::now();
+
     // Configuración (la lee el núcleo en C con Lua)
     let dir_config = nucleo::dir_config();
     let dir_temas = dir_config.join("temas");
@@ -120,6 +125,7 @@ fn main() -> eframe::Result {
         }
     };
 
+    perfil::reportar("config, temas y carpetas", arranque);
     let integrada = config.barra_titulo_integrada;
     let mut ventana = egui::ViewportBuilder::default()
         .with_title("Solar")
@@ -143,6 +149,12 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Solar",
         opciones,
-        Box::new(move |cc| Ok(Box::new(app::Solar::nuevo(cc, inicio)))),
+        Box::new(move |cc| {
+            perfil::reportar("ventana y OpenGL listos", arranque);
+            let t = std::time::Instant::now();
+            let app = app::Solar::nuevo(cc, inicio);
+            perfil::reportar("Solar::nuevo", t);
+            Ok(Box::new(app))
+        }),
     )
 }

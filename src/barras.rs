@@ -326,6 +326,53 @@ impl Solar {
     //  Barra de estado
     // ------------------------------------------------------------------
 
+    fn armar_texto_estado(&self) -> String {
+        let (mut n_sel, mut bytes, mut carpetas) = (0usize, 0u64, 0usize);
+        if !self.seleccion.is_empty() {
+            for &i in &self.visibles {
+                let e = &self.entradas[i];
+                if self.seleccion.contains(&e.ruta) {
+                    n_sel += 1;
+                    if e.es_carpeta() { carpetas += 1 } else { bytes += e.tamano }
+                }
+            }
+        }
+        if n_sel == 0 {
+            let ocultos = if self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera {
+                0
+            } else {
+                self.entradas.iter().filter(|e| e.es_oculto).count()
+            };
+            let mut t = formato::elementos(self.visibles.len());
+            if ocultos > 0 {
+                t.push_str(&if ocultos == 1 {
+                    " (1 oculto)".to_string()
+                } else {
+                    format!(" ({} ocultos)", formato::miles(ocultos as u64))
+                });
+            }
+            t
+        } else {
+            let mut t = format!(
+                "{} de {} {}",
+                formato::miles(n_sel as u64),
+                formato::miles(self.visibles.len() as u64),
+                if n_sel == 1 { "seleccionado" } else { "seleccionados" }
+            );
+            if bytes > 0 {
+                t.push_str(&format!(" · {}", formato::tamano(bytes)));
+            }
+            if carpetas > 0 {
+                t.push_str(&if carpetas == 1 {
+                    " · 1 carpeta".to_string()
+                } else {
+                    format!(" · {} carpetas", formato::miles(carpetas as u64))
+                });
+            }
+            t
+        }
+    }
+
     pub(crate) fn barra_estado(&mut self, ui: &mut Ui, acciones: &mut Vec<Accion>) {
         let p = self.paleta.clone();
         egui::Panel::bottom("barra_estado")
@@ -336,49 +383,18 @@ impl Solar {
                 let rect = ui.max_rect();
                 ui.painter().line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0, con_alfa(p.borde, 0.5)));
                 ui.horizontal_centered(|ui| {
-                    let (mut n_sel, mut bytes, mut carpetas) = (0usize, 0u64, 0usize);
-                    if !self.seleccion.is_empty() {
-                        for &i in &self.visibles {
-                            let e = &self.entradas[i];
-                            if self.seleccion.contains(&e.ruta) {
-                                n_sel += 1;
-                                if e.es_carpeta() { carpetas += 1 } else { bytes += e.tamano }
-                            }
+                    // Recorrer miles de archivos en cada cuadro se nota: el texto
+                    // se arma solo cuando cambia la selección o lo visible
+                    let mostrar_todo = self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera;
+                    let clave = (self.seleccion.version(), self.version_visibles, mostrar_todo);
+                    let guardado = self.texto_estado.borrow().as_ref().filter(|(k, _)| *k == clave).map(|(_, t)| t.clone());
+                    let texto = match guardado {
+                        Some(t) => t,
+                        None => {
+                            let t = self.armar_texto_estado();
+                            *self.texto_estado.borrow_mut() = Some((clave, t.clone()));
+                            t
                         }
-                    }
-                    let texto = if n_sel == 0 {
-                        let ocultos = if self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera {
-                            0
-                        } else {
-                            self.entradas.iter().filter(|e| e.es_oculto).count()
-                        };
-                        let mut t = formato::elementos(self.visibles.len());
-                        if ocultos > 0 {
-                            t.push_str(&if ocultos == 1 {
-                                " (1 oculto)".to_string()
-                            } else {
-                                format!(" ({} ocultos)", formato::miles(ocultos as u64))
-                            });
-                        }
-                        t
-                    } else {
-                        let mut t = format!(
-                            "{} de {} {}",
-                            formato::miles(n_sel as u64),
-                            formato::miles(self.visibles.len() as u64),
-                            if n_sel == 1 { "seleccionado" } else { "seleccionados" }
-                        );
-                        if bytes > 0 {
-                            t.push_str(&format!(" · {}", formato::tamano(bytes)));
-                        }
-                        if carpetas > 0 {
-                            t.push_str(&if carpetas == 1 {
-                                " · 1 carpeta".to_string()
-                            } else {
-                                format!(" · {} carpetas", formato::miles(carpetas as u64))
-                            });
-                        }
-                        t
                     };
                     ui.label(RichText::new(texto).size(12.5).color(p.texto_tenue));
 

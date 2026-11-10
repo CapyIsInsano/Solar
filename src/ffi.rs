@@ -20,6 +20,7 @@ pub const SOLAR_TIPO_ESPECIAL: u8 = 3;
 pub const SOLAR_CAMBIO_CARPETA: c_int = 1;
 pub const SOLAR_CAMBIO_MONTAJES: c_int = 2;
 pub const SOLAR_CAMBIO_PAPELERA: c_int = 4;
+pub const SOLAR_CAMBIO_DISPOSITIVOS: c_int = 8;
 
 pub const SOLAR_COLORES_TOTAL: usize = 13;
 
@@ -312,6 +313,7 @@ unsafe extern "C" {
     pub fn solar_vigilante_crear() -> *mut SolarVigilante;
     pub fn solar_vigilante_observar(v: *mut SolarVigilante, ruta: *const c_char) -> c_int;
     pub fn solar_vigilante_esperar(v: *mut SolarVigilante, milisegundos: c_int) -> c_int;
+    pub fn solar_vigilante_despertar(v: *mut SolarVigilante);
     pub fn solar_vigilante_destruir(v: *mut SolarVigilante);
 
     pub fn solar_carpetas_abrir(archivo: *const c_char) -> *mut SolarCarpetas;

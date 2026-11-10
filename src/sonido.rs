@@ -38,11 +38,17 @@ const ARCHIVOS: [(Sonido, &[u8]); 6] = [
 static ACTIVOS: AtomicBool = AtomicBool::new(true);
 static VOLUMEN: AtomicU32 = AtomicU32::new(0x3F19_999A); // 0.6
 static CARGADOS: AtomicBool = AtomicBool::new(false);
+/// Ya se mandaron a cargar (con los sonidos apagados no se decodifican:
+/// ni CPU al abrir ni memoria, hasta que los prendas)
+static INICIADO: AtomicBool = AtomicBool::new(false);
 static PENDIENTE: Mutex<Option<Sonido>> = Mutex::new(None);
 static ULTIMO: Mutex<Option<(Sonido, Instant)>> = Mutex::new(None);
 
 /// Decodifica los sonidos (en un hilo aparte: tarda unos milisegundos).
 pub fn iniciar(con_bienvenida: bool) {
+    if !ACTIVOS.load(Ordering::Relaxed) || INICIADO.swap(true, Ordering::AcqRel) {
+        return;
+    }
     std::thread::Builder::new()
         .name("solar-sonidos".into())
         .spawn(move || {
@@ -59,9 +65,18 @@ pub fn iniciar(con_bienvenida: bool) {
         .ok();
 }
 
-pub fn configurar(activos: bool, volumen: f32) {
+/// Solo guarda si están prendidos y el volumen (sin cargar nada).
+pub fn ajustar(activos: bool, volumen: f32) {
     ACTIVOS.store(activos, Ordering::Relaxed);
     VOLUMEN.store(volumen.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
+
+pub fn configurar(activos: bool, volumen: f32) {
+    ajustar(activos, volumen);
+    if activos && !INICIADO.load(Ordering::Relaxed) {
+        // Se prendieron desde Ajustes: cargarlos ahora (sin bienvenida)
+        iniciar(false);
+    }
 }
 
 fn volumen() -> f32 {

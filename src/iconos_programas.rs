@@ -110,22 +110,64 @@ fn cargar(ruta: &Path) -> Option<ColorImage> {
     }
 }
 
-/// Texturas ya cargadas (None = no se encontró, para no buscar otra vez).
-#[derive(Default)]
+enum Estado {
+    /// Buscándose/leyéndose en otro hilo
+    Cargando,
+    Listo(Option<TextureHandle>),
+}
+
+/// Texturas de los íconos. Buscar un ícono en los temas y dibujar un SVG
+/// toma unos milisegundos, así que se hace en otro hilo: mientras tanto se
+/// ve el glifo de respaldo y, al llegar, el ícono real.
 pub struct Cache {
-    texturas: HashMap<String, Option<TextureHandle>>,
+    texturas: HashMap<String, Estado>,
+    /// Pedidos al hilo que carga (uno solo, aunque pidas 300 íconos)
+    pedidos: Option<std::sync::mpsc::Sender<String>>,
+    tx: std::sync::mpsc::Sender<(String, Option<ColorImage>)>,
+    rx: std::sync::mpsc::Receiver<(String, Option<ColorImage>)>,
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self { texturas: HashMap::new(), pedidos: None, tx, rx }
+    }
 }
 
 impl Cache {
+    /// La textura del ícono, si ya está lista (None mientras carga o si no existe).
     pub fn textura(&mut self, ctx: &egui::Context, icono: &str) -> Option<TextureHandle> {
-        if let Some(t) = self.texturas.get(icono) {
-            return t.clone();
+        // Recoger lo que ya terminó
+        while let Ok((nombre, img)) = self.rx.try_recv() {
+            let t = img.map(|img| ctx.load_texture(format!("programa:{nombre}"), img, TextureOptions::LINEAR));
+            self.texturas.insert(nombre, Estado::Listo(t));
         }
-        let t = buscar(icono).and_then(|r| cargar(&r)).map(|img| {
-            ctx.load_texture(format!("programa:{icono}"), img, TextureOptions::LINEAR)
-        });
-        self.texturas.insert(icono.to_string(), t.clone());
-        t
+        match self.texturas.get(icono) {
+            Some(Estado::Listo(t)) => return t.clone(),
+            Some(Estado::Cargando) => return None,
+            None => {}
+        }
+        if self.pedidos.is_none() {
+            let (tx_p, rx_p) = std::sync::mpsc::channel::<String>();
+            let (tx, ctx) = (self.tx.clone(), ctx.clone());
+            let lanzado = std::thread::Builder::new().name("solar-iconos".into()).spawn(move || {
+                // Termina solo cuando se suelta la caché
+                for nombre in rx_p {
+                    let img = buscar(&nombre).and_then(|r| cargar(&r));
+                    if tx.send((nombre, img)).is_err() {
+                        break;
+                    }
+                    ctx.request_repaint();
+                }
+            });
+            if lanzado.is_ok() {
+                self.pedidos = Some(tx_p);
+            }
+        }
+        let enviado = self.pedidos.as_ref().is_some_and(|p| p.send(icono.to_string()).is_ok());
+        self.texturas
+            .insert(icono.to_string(), if enviado { Estado::Cargando } else { Estado::Listo(None) });
+        None
     }
 
     pub fn vaciar(&mut self) {

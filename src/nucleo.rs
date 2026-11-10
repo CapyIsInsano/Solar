@@ -6,6 +6,7 @@
 
 use crate::ffi;
 use eframe::egui::Color32;
+use std::sync::Arc;
 use std::ffi::{CStr, CString, OsStr, c_char, c_int, c_void};
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
@@ -268,14 +269,21 @@ pub struct Entrada {
     pub categoria: Categoria,
     pub es_enlace: bool,
     pub es_oculto: bool,
-    pub descripcion: String,
+    /// Compartida entre todos los archivos del mismo tipo ("Imagen PNG"…)
+    pub descripcion: Arc<str>,
     pub estilo: Option<EstiloCarpeta>,
+    /// Nombre sin mayúsculas ni acentos, para buscar. Vacío si es igual al
+    /// nombre (así no se guarda dos veces): usa `plegado()`.
     pub plegado: String,
 }
 
 impl Entrada {
     pub fn es_carpeta(&self) -> bool {
         self.tipo == TipoEntrada::Carpeta
+    }
+
+    pub fn plegado(&self) -> &str {
+        if self.plegado.is_empty() { &self.nombre } else { &self.plegado }
     }
 }
 
@@ -305,6 +313,9 @@ pub fn listar(dir: &Path, orden: Orden, descendente: bool, carpetas_primero: boo
     }
     unsafe { ffi::solar_ordenar(&mut l, orden as c_int, descendente as c_int, carpetas_primero as c_int) };
     let mut v = Vec::with_capacity(l.cantidad);
+    // Miles de archivos comparten unas pocas descripciones ("Imagen PNG"…):
+    // se guardan una sola vez y cada archivo apunta a la suya
+    let mut descripciones: std::collections::HashMap<Box<str>, Arc<str>> = std::collections::HashMap::new();
     for i in 0..l.cantidad {
         let e = unsafe { &*l.entradas.add(i) };
         let bytes = unsafe { CStr::from_ptr(e.nombre) }.to_bytes();
@@ -320,8 +331,17 @@ pub fn listar(dir: &Path, orden: Orden, descendente: bool, carpetas_primero: boo
                 desc.len(),
             )
         };
+        let texto = unsafe { CStr::from_ptr(desc.as_ptr()) }.to_string_lossy();
+        let descripcion = match descripciones.get(texto.as_ref()) {
+            Some(d) => d.clone(),
+            None => {
+                let d: Arc<str> = Arc::from(texto.as_ref());
+                descripciones.insert(texto.as_ref().into(), d.clone());
+                d
+            }
+        };
         v.push(Entrada {
-            plegado: crate::formato::plegar(&nombre),
+            plegado: crate::formato::plegar_si_hace_falta(&nombre),
             nombre,
             ruta: dir.join(OsStr::from_bytes(bytes)),
             tamano: e.tamano,
@@ -331,7 +351,7 @@ pub fn listar(dir: &Path, orden: Orden, descendente: bool, carpetas_primero: boo
             categoria: Categoria::de(e.categoria),
             es_enlace: e.es_enlace != 0,
             es_oculto: e.es_oculto != 0,
-            descripcion: texto_de_buffer(&desc),
+            descripcion,
             estilo: None,
         });
     }
@@ -755,34 +775,56 @@ pub fn espacio(ruta: &Path) -> Option<Espacio> {
 //  Vigilante
 // ======================================================================
 
-pub struct Vigilante(*mut ffi::SolarVigilante);
+/// El objeto de C, compartido entre el hilo vigía y quien lo despierta.
+/// Se destruye cuando ya nadie lo usa.
+struct VigilanteC(*mut ffi::SolarVigilante);
 
-// El vigilante vive en un solo hilo a la vez (lo movemos al hilo vigía).
-unsafe impl Send for Vigilante {}
+// Solo el hilo vigía llama a observar/esperar; desde otros hilos solo se
+// llama a solar_vigilante_despertar, que en C es seguro entre hilos.
+unsafe impl Send for VigilanteC {}
+unsafe impl Sync for VigilanteC {}
+
+impl Drop for VigilanteC {
+    fn drop(&mut self) {
+        unsafe { ffi::solar_vigilante_destruir(self.0) };
+    }
+}
+
+pub struct Vigilante(std::sync::Arc<VigilanteC>);
+
+/// Despierta al hilo vigía desde cualquier otro hilo.
+#[derive(Clone)]
+pub struct Despertador(std::sync::Arc<VigilanteC>);
 
 pub const CAMBIO_CARPETA: i32 = ffi::SOLAR_CAMBIO_CARPETA;
 pub const CAMBIO_MONTAJES: i32 = ffi::SOLAR_CAMBIO_MONTAJES;
 pub const CAMBIO_PAPELERA: i32 = ffi::SOLAR_CAMBIO_PAPELERA;
+pub const CAMBIO_DISPOSITIVOS: i32 = ffi::SOLAR_CAMBIO_DISPOSITIVOS;
 
 impl Vigilante {
     pub fn nuevo() -> Option<Self> {
         let v = unsafe { ffi::solar_vigilante_crear() };
-        (!v.is_null()).then_some(Self(v))
+        (!v.is_null()).then(|| Self(std::sync::Arc::new(VigilanteC(v))))
+    }
+
+    pub fn despertador(&self) -> Despertador {
+        Despertador(self.0.clone())
     }
 
     pub fn observar(&mut self, ruta: Option<&Path>) {
         let c = ruta.map(cruta);
-        unsafe { ffi::solar_vigilante_observar(self.0, c.as_ref().map_or(ptr::null(), |c| c.as_ptr())) };
+        unsafe { ffi::solar_vigilante_observar(self.0.0, c.as_ref().map_or(ptr::null(), |c| c.as_ptr())) };
     }
 
+    /// Duerme hasta que pase algo (o hasta `milisegundos`).
     pub fn esperar(&mut self, milisegundos: i32) -> i32 {
-        unsafe { ffi::solar_vigilante_esperar(self.0, milisegundos) }
+        unsafe { ffi::solar_vigilante_esperar(self.0.0, milisegundos) }
     }
 }
 
-impl Drop for Vigilante {
-    fn drop(&mut self) {
-        unsafe { ffi::solar_vigilante_destruir(self.0) };
+impl Despertador {
+    pub fn despertar(&self) {
+        unsafe { ffi::solar_vigilante_despertar(self.0.0) };
     }
 }
 
@@ -1227,7 +1269,7 @@ mod pruebas {
 
     #[test]
     fn version_y_errores() {
-        assert_eq!(version(), "0.1.0-alpha");
+        assert_eq!(version(), "0.1.1-alpha");
         assert_eq!(texto_error(13), "Permiso denegado");
     }
 
@@ -1241,7 +1283,7 @@ mod pruebas {
         let v = listar(&dir, Orden::Nombre, false, true).unwrap();
         let nombres: Vec<_> = v.iter().map(|e| e.nombre.as_str()).collect();
         assert_eq!(nombres, ["Juegos", "foto2.png", "foto10.png"]);
-        assert_eq!(v[1].descripcion, "Imagen PNG");
+        assert_eq!(&*v[1].descripcion, "Imagen PNG");
         assert!(v[0].es_carpeta());
 
         let mut db = Carpetas::abrir(&dir.join("carpetas.tsv")).unwrap();

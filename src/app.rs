@@ -155,14 +155,15 @@ pub struct Solar {
     pub(crate) ultimo_cambio: Option<Instant>,
     pub(crate) temas: Vec<Tema>,
     pub(crate) paleta: Paleta,
-    pub(crate) apariencia_aplicada: Option<(String, bool, u32, f32, String, bool)>,
+    pub(crate) apariencia_aplicada: Option<ClaveApariencia>,
     pub(crate) atajos: Atajos,
     pub(crate) carpetas: Arc<Mutex<Carpetas>>,
 
     pub(crate) ubicacion: Ubicacion,
     pub(crate) historial: Vec<Ubicacion>,
     pub(crate) pos_historial: usize,
-    pub(crate) entradas: Vec<Entrada>,
+    /// Compartidas (Arc): dibujar un archivo ya no copia sus textos en cada cuadro
+    pub(crate) entradas: Vec<Arc<Entrada>>,
     /// ruta -> posición en `entradas` (para no buscar uno por uno)
     pub(crate) indice: HashMap<PathBuf, usize>,
     pub(crate) originales_papelera: Vec<PathBuf>,
@@ -173,7 +174,16 @@ pub struct Solar {
     pub(crate) error_listado: Option<String>,
     pub(crate) espacio: Option<Espacio>,
 
-    pub(crate) seleccion: HashSet<PathBuf>,
+    pub(crate) seleccion: Seleccion,
+    /// Cambia cada vez que cambian los archivos visibles (para cachés)
+    pub(crate) version_visibles: u64,
+    /// Cuándo se pidió el último listado, y si quedó uno pendiente (para no
+    /// releer 20 000 archivos cada vez que entra uno nuevo mientras copias)
+    pub(crate) ultima_carga: Instant,
+    pub(crate) recarga_pendiente: bool,
+    primer_cuadro_hecho: bool,
+    /// Texto de la barra de estado ya armado
+    pub(crate) texto_estado: std::cell::RefCell<Option<(ClaveEstado, String)>>,
     pub(crate) ancla: Option<PathBuf>,
     pub(crate) foco: Option<PathBuf>,
     pub(crate) desplazar_a_foco: bool,
@@ -201,7 +211,7 @@ pub struct Solar {
 
     pub(crate) tx: Sender<Mensaje>,
     rx: Receiver<Mensaje>,
-    pub(crate) vigia: Sender<ComandoVigia>,
+    pub(crate) vigia: tareas::CanalVigia,
     pub(crate) titulo: String,
     pub(crate) maximizada: bool,
     pub(crate) avisos_inicio: Vec<String>,
@@ -272,7 +282,12 @@ impl Solar {
             generacion: 0,
             error_listado: None,
             espacio: None,
-            seleccion: HashSet::new(),
+            seleccion: Seleccion::default(),
+            version_visibles: 0,
+            ultima_carga: Instant::now(),
+            recarga_pendiente: false,
+            primer_cuadro_hecho: false,
+            texto_estado: std::cell::RefCell::new(None),
             ancla: None,
             foco: None,
             desplazar_a_foco: false,
@@ -286,7 +301,8 @@ impl Solar {
             enfocar_ruta: false,
             portapapeles: None,
             dispositivos: Vec::new(),
-            papelera_vacia: nucleo::papelera_vacia(),
+            // La revisa el vigía en otro hilo y avisa en un momento
+            papelera_vacia: true,
             montando: HashSet::new(),
             dialogo: None,
             ajustes: None,
@@ -314,7 +330,7 @@ impl Solar {
             dialogo_desde: (None, Instant::now()),
             ajustes_desde: Instant::now(),
         };
-        sonido::configurar(app.config.sonidos, app.config.volumen);
+        sonido::ajustar(app.config.sonidos, app.config.volumen);
         sonido::iniciar(true);
         crate::escritorio::integrar();
         if app.config.buscar_actualizaciones && actualizar::toca_revisar() {
@@ -337,15 +353,23 @@ impl Solar {
     }
 
     pub(crate) fn aplicar_apariencia(&mut self, ctx: &egui::Context) {
+        // Se llama en cada cuadro: primero una comparación barata, sin copiar
+        // el tema ni armar textos; solo si algo cambió se hace el trabajo.
+        let al_dia = self.transicion_tema.is_none()
+            && self.apariencia_aplicada.as_ref().is_some_and(|a| {
+                let t = self.tema_actual();
+                a.tema == t.id
+                    && a.colores == t.colores
+                    && a.transparencia == self.config.transparencia
+                    && a.opacidad == self.config.opacidad.to_bits()
+                    && a.escala == self.config.escala.to_bits()
+                    && a.fuente == self.config.fuente
+                    && a.animaciones == self.config.animaciones
+            });
+        if al_dia {
+            return;
+        }
         let tema = self.tema_actual().clone();
-        let clave = (
-            format!("{}{:?}", tema.id, tema.colores),
-            self.config.transparencia,
-            self.config.opacidad.to_bits(),
-            self.config.escala,
-            self.config.fuente.clone(),
-            self.config.animaciones,
-        );
         // Cambio de tema: los colores se mezclan poco a poco (≈ 0,35 s)
         if let Some((origen, desde)) = &self.transicion_tema {
             let t = desde.elapsed().as_secs_f32() / 0.35;
@@ -364,13 +388,10 @@ impl Solar {
             }
             self.transicion_tema = None;
         }
-        if self.apariencia_aplicada.as_ref() == Some(&clave) {
-            return;
-        }
         if let Some(antes) = &self.apariencia_aplicada
-            && !antes.0.starts_with(&format!("{}[", tema.id))
+            && antes.tema != tema.id
             && self.config.animaciones
-            && let Some(origen) = self.temas.iter().find(|t| antes.0.starts_with(&format!("{}[", t.id)))
+            && let Some(origen) = self.temas.iter().find(|t| t.id == antes.tema)
         {
             // Empezar la transición desde el tema anterior
             self.transicion_tema = Some((origen.clone(), Instant::now()));
@@ -379,8 +400,8 @@ impl Solar {
             ctx.request_repaint();
             return;
         }
-        let fuente_cambio = self.fuente_aplicada.as_ref() != Some(&clave.4);
-        self.fuente_aplicada = Some(clave.4.clone());
+        let fuente_cambio = self.fuente_aplicada.as_ref() != Some(&self.config.fuente);
+        self.fuente_aplicada = Some(self.config.fuente.clone());
         self.paleta = tema::paleta(&tema, self.config.transparencia, self.config.opacidad);
         tema::aplicar(ctx, &tema, &self.paleta);
         self.aplicar_tiempo_animacion(ctx);
@@ -388,7 +409,15 @@ impl Solar {
         if fuente_cambio && let Err(e) = crate::fuentes::configurar(ctx, &self.config.fuente) {
             self.avisar(e, TipoAviso::Error);
         }
-        self.apariencia_aplicada = Some(clave);
+        self.apariencia_aplicada = Some(ClaveApariencia {
+            tema: tema.id.clone(),
+            colores: tema.colores,
+            transparencia: self.config.transparencia,
+            opacidad: self.config.opacidad.to_bits(),
+            escala: self.config.escala.to_bits(),
+            fuente: self.config.fuente.clone(),
+            animaciones: self.config.animaciones,
+        });
     }
 
     fn aplicar_tiempo_animacion(&self, ctx: &egui::Context) {
@@ -462,8 +491,10 @@ impl Solar {
         {
             self.seleccionar_al_cargar = Some(vec![a.clone()]);
         }
-        self.entradas.clear();
-        self.indice.clear();
+        // Soltar una carpeta enorme cuesta: que lo haga otro hilo
+        let viejas = std::mem::take(&mut self.entradas);
+        let grande = viejas.len() > 5000;
+        crate::memoria::soltar_aparte((viejas, std::mem::take(&mut self.indice)), grande);
         self.visibles.clear();
         self.visibles_sucios = true;
         self.animar_carga = true;
@@ -495,13 +526,15 @@ impl Solar {
     /// Vuelve a leer la ubicación actual. `nueva` indica que cambiamos de carpeta.
     pub fn cargar(&mut self, ctx: &egui::Context, nueva: bool) {
         self.generacion += 1;
+        self.ultima_carga = Instant::now();
+        self.recarga_pendiente = false;
         if nueva {
             self.cargando_desde = Some(Instant::now());
         }
         match &self.ubicacion {
             Ubicacion::Ruta(dir) => {
                 if nueva {
-                    let _ = self.vigia.send(ComandoVigia::Observar(Some(dir.clone())));
+                    self.vigia.enviar(ComandoVigia::Observar(Some(dir.clone())));
                 }
                 tareas::listar(
                     dir.clone(),
@@ -516,7 +549,7 @@ impl Solar {
             }
             Ubicacion::Papelera => {
                 if nueva {
-                    let _ = self.vigia.send(ComandoVigia::Observar(None));
+                    self.vigia.enviar(ComandoVigia::Observar(None));
                 }
                 tareas::listar_papelera(self.generacion, self.tx.clone(), ctx.clone());
             }
@@ -538,10 +571,11 @@ impl Solar {
             .iter()
             .enumerate()
             .filter(|(_, e)| ocultos || !e.es_oculto)
-            .filter(|(_, e)| consulta.as_ref().is_none_or(|q| e.plegado.contains(q.as_str())))
+            .filter(|(_, e)| consulta.as_ref().is_none_or(|q| e.plegado().contains(q.as_str())))
             .map(|(i, _)| i)
             .collect();
         self.visibles_sucios = false;
+        self.version_visibles += 1;
     }
 
     // ------------------------------------------------------------------
@@ -551,21 +585,28 @@ impl Solar {
     fn procesar_mensajes(&mut self, ctx: &egui::Context) {
         while let Ok(m) = self.rx.try_recv() {
             match m {
-                Mensaje::Listado { generacion, resultado, espacio } => {
+                Mensaje::Listado { generacion, resultado, indice, espacio } => {
                     if generacion != self.generacion {
                         continue;
                     }
                     self.cargando_desde = None;
                     self.espacio = espacio;
-                    match resultado {
+                    let (entradas, indice) = match resultado {
                         Ok(v) => {
-                            self.entradas = v;
                             self.error_listado = None;
+                            (v, Some(indice))
                         }
                         Err(e) => {
-                            self.entradas.clear();
                             self.error_listado = Some(e.mensaje);
+                            (Vec::new(), None)
                         }
+                    };
+                    let viejas = std::mem::replace(&mut self.entradas, entradas);
+                    let viejo_indice = std::mem::take(&mut self.indice);
+                    let grande = viejas.len() > 5000;
+                    crate::memoria::soltar_aparte((viejas, viejo_indice), grande);
+                    if let Some(i) = indice {
+                        self.indice = i;
                     }
                     self.despues_de_cargar();
                 }
@@ -578,6 +619,7 @@ impl Solar {
                     self.espacio = None;
                     self.papelera_vacia = elementos.is_empty();
                     self.originales_papelera = elementos.iter().map(|e| e.ruta_original.clone()).collect();
+                    self.indice.clear();
                     self.entradas = elementos
                         .into_iter()
                         .map(|e| {
@@ -587,8 +629,8 @@ impl Solar {
                                 .parent()
                                 .map(nucleo::contraer)
                                 .unwrap_or_default();
-                            Entrada {
-                                plegado: crate::formato::plegar(&e.nombre),
+                            Arc::new(Entrada {
+                                plegado: crate::formato::plegar_si_hace_falta(&e.nombre),
                                 nombre: e.nombre,
                                 ruta: e.ruta,
                                 tamano: e.tamano,
@@ -598,20 +640,27 @@ impl Solar {
                                 categoria: e.categoria,
                                 es_enlace: false,
                                 es_oculto: false,
-                                descripcion: format!("Estaba en {estaba}"),
+                                descripcion: format!("Estaba en {estaba}").into(),
                                 estilo: None,
-                            }
+                            })
                         })
                         .collect();
                     self.despues_de_cargar();
                 }
                 Mensaje::CambioCarpeta => {
                     if matches!(self.ubicacion, Ubicacion::Ruta(_)) {
-                        self.cargar(ctx, false);
+                        // Carpetas grandes: como mucho una relectura por segundo
+                        let espera = self.espera_recarga();
+                        if espera.is_zero() {
+                            self.cargar(ctx, false);
+                        } else {
+                            self.recarga_pendiente = true;
+                            ctx.request_repaint_after(espera);
+                        }
                     }
                 }
+                Mensaje::EstadoPapelera(vacia) => self.papelera_vacia = vacia,
                 Mensaje::CambioPapelera => {
-                    self.papelera_vacia = nucleo::papelera_vacia();
                     if self.ubicacion == Ubicacion::Papelera {
                         self.cargar(ctx, false);
                     }
@@ -632,6 +681,8 @@ impl Solar {
                 }
                 Mensaje::TareaTerminada { id, resultado, destinos, tipo } => {
                     self.tareas.retain(|t| t.id != id);
+                    // El espacio libre de los discos cambió
+                    self.vigia.enviar(ComandoVigia::Dispositivos { incluir_internos: self.config.mostrar_discos_internos });
                     match resultado {
                         Ok(texto) => {
                             sonido::pedir(Sonido::Listo);
@@ -658,7 +709,7 @@ impl Solar {
                             }
                         }
                     }
-                    self.papelera_vacia = nucleo::papelera_vacia();
+                    self.vigia.enviar(ComandoVigia::RevisarPapelera);
                     self.cargar(ctx, false);
                 }
                 Mensaje::Montaje { dispositivo, resultado, abrir, desmontar } => {
@@ -688,17 +739,26 @@ impl Solar {
     }
 
     fn despues_de_cargar(&mut self) {
+        let _t = std::time::Instant::now();
+        self.despues_de_cargar_();
+        crate::perfil::reportar("después de cargar (índice, selección)", _t);
+    }
+
+    fn despues_de_cargar_(&mut self) {
         if self.animar_carga {
             self.animar_carga = false;
             self.carga_animada = Some(Instant::now());
         }
-        self.indice = self.entradas.iter().enumerate().map(|(i, e)| (e.ruta.clone(), i)).collect();
+        // El listado normal ya trae el índice armado; la papelera no
+        if self.indice.len() != self.entradas.len() {
+            self.indice = self.entradas.iter().enumerate().map(|(i, e)| (e.ruta.clone(), i)).collect();
+        }
         let existentes = &self.indice;
         self.seleccion.retain(|r| existentes.contains_key(r));
         if let Some(sel) = self.seleccionar_al_cargar.take() {
             let validas: Vec<PathBuf> = sel.into_iter().filter(|r| existentes.contains_key(r)).collect();
             if !validas.is_empty() {
-                self.seleccion = validas.iter().cloned().collect();
+                self.seleccion.reemplazar(validas.iter().cloned().collect());
                 self.foco = validas.first().cloned();
                 self.ancla = self.foco.clone();
                 self.desplazar_a_foco = true;
@@ -715,7 +775,7 @@ impl Solar {
     // ------------------------------------------------------------------
 
     pub fn entrada(&self, ruta: &Path) -> Option<&Entrada> {
-        self.indice.get(ruta).and_then(|&i| self.entradas.get(i))
+        self.indice.get(ruta).and_then(|&i| self.entradas.get(i)).map(|e| &**e)
     }
 
     /// La selección, en el orden en que se ve.
@@ -819,9 +879,7 @@ impl Solar {
         } else {
             self.dialogo = Some(Dialogo::AvisosConfig(avisos));
         }
-        let _ = self
-            .vigia
-            .send(ComandoVigia::Dispositivos { incluir_internos: self.config.mostrar_discos_internos });
+        self.vigia.enviar(ComandoVigia::Dispositivos { incluir_internos: self.config.mostrar_discos_internos });
         self.visibles_sucios = true;
         self.cargar(ctx, false);
     }
@@ -932,7 +990,7 @@ impl Solar {
             Accion::Subir => self.subir(ctx),
             Accion::Inicio => self.navegar(ctx, Ubicacion::Ruta(nucleo::dir_hogar())),
             Accion::Recargar => {
-                self.papelera_vacia = nucleo::papelera_vacia();
+                self.vigia.enviar(ComandoVigia::RevisarPapelera);
                 self.cargar(ctx, false);
             }
             Accion::Abrir(ruta) => self.abrir(ctx, &ruta),
@@ -954,7 +1012,7 @@ impl Solar {
                 if rutas.is_empty() {
                     return;
                 }
-                let tipo = if rutas.len() == 1 { self.entrada(&rutas[0]).map(|e| e.descripcion.clone()).unwrap_or_default() } else { String::new() };
+                let tipo = if rutas.len() == 1 { self.entrada(&rutas[0]).map(|e| e.descripcion.to_string()).unwrap_or_default() } else { String::new() };
                 self.dialogo = Some(Dialogo::AbrirCon(Box::new(EstadoAbrirCon::nuevo(rutas, tipo))));
             }
             Accion::AbrirConPrograma { programa, rutas } => {
@@ -1042,7 +1100,7 @@ impl Solar {
                 }
             }
             Accion::SeleccionarTodo => {
-                self.seleccion = self.visibles.iter().map(|&i| self.entradas[i].ruta.clone()).collect();
+                self.seleccion.reemplazar(self.visibles.iter().map(|&i| self.entradas[i].ruta.clone()).collect());
             }
             Accion::AlternarOcultos => {
                 self.config.mostrar_ocultos = !self.config.mostrar_ocultos;
@@ -1342,7 +1400,7 @@ impl Solar {
             }
         }
         for e in self.entradas.iter_mut().filter(|e| rutas.contains(&e.ruta)) {
-            e.estilo = (!estilo.vacio()).then(|| estilo.clone());
+            Arc::make_mut(e).estilo = (!estilo.vacio()).then(|| estilo.clone());
         }
         // Un pequeño "salto" de la carpeta para que se note el cambio
         let ahora = Instant::now();
@@ -1487,7 +1545,24 @@ impl eframe::App for Solar {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        crate::perfil::cuadro();
+        let primero = !self.primer_cuadro_hecho;
+        let t = Instant::now();
+        crate::perfil::medir("total", || self.ui_cuadro(ui, frame));
+        if primero {
+            self.primer_cuadro_hecho = true;
+            crate::perfil::reportar("primer cuadro (nuestra parte)", t);
+        }
+    }
+
+    fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        self.al_salir(gl);
+    }
+}
+
+impl Solar {
+    fn ui_cuadro(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         sonido::configurar(self.config.sonidos, self.config.volumen);
         self.procesar_mensajes(&ctx);
@@ -1523,7 +1598,7 @@ impl eframe::App for Solar {
                 // Esc cierra Ajustes (y no toca la selección de atrás)
                 acciones.push(Accion::Ajustes);
             } else {
-                self.teclado_vista(&ctx, &mut acciones);
+                crate::perfil::medir("teclado", || self.teclado_vista(&ctx, &mut acciones));
             }
         } else if self.dialogo.is_none() && ctx.egui_wants_keyboard_input() {
             // Escape cierra la búsqueda o la edición de ruta
@@ -1555,19 +1630,21 @@ impl eframe::App for Solar {
             }
         });
 
-        self.barra_superior(ui, &mut acciones);
-        self.barra_estado(ui, &mut acciones);
+        crate::perfil::medir("superior", || self.barra_superior(ui, &mut acciones));
+        crate::perfil::medir("estado", || self.barra_estado(ui, &mut acciones));
         if self.config.barra_ubicacion == nucleo::Posicion::Abajo {
             self.panel_ubicacion_abajo(ui, &mut acciones);
         }
-        self.barra_lateral(ui, &mut acciones);
-        self.vista_central(ui, &mut acciones);
+        crate::perfil::medir("lateral", || self.barra_lateral(ui, &mut acciones));
+        crate::perfil::medir("central", || self.vista_central(ui, &mut acciones));
 
-        self.dibujar_arrastre(&ctx);
-        self.mostrar_notificaciones(&ctx);
-        self.ventana_tareas(&ctx);
-        self.ventana_ajustes(&ctx, &mut acciones);
-        self.mostrar_dialogo(&ctx, &mut acciones);
+        crate::perfil::medir("capas", || {
+            self.dibujar_arrastre(&ctx);
+            self.mostrar_notificaciones(&ctx);
+            self.ventana_tareas(&ctx);
+            self.ventana_ajustes(&ctx, &mut acciones);
+            self.mostrar_dialogo(&ctx, &mut acciones);
+        });
         if self.config.barra_titulo_integrada && !self.maximizada {
             self.bordes_ventana(&ctx);
         }
@@ -1575,7 +1652,7 @@ impl eframe::App for Solar {
         for a in acciones {
             self.ejecutar(&ctx, a);
         }
-        self.guardar_si_hace_falta(&ctx);
+        crate::perfil::medir("guardar", || self.guardar_si_hace_falta(&ctx));
         sonido::despachar();
 
         if !self.tareas.is_empty() {
@@ -1584,9 +1661,24 @@ impl eframe::App for Solar {
         if self.cargando_desde.is_some() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+        if self.recarga_pendiente {
+            let espera = self.espera_recarga();
+            if espera.is_zero() {
+                self.cargar(&ctx, false);
+            } else {
+                ctx.request_repaint_after(espera);
+            }
+        }
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    /// Cuánto falta para poder releer la carpeta (0 = ya). Las carpetas
+    /// chicas se releen al instante; las grandes, como mucho una vez por segundo.
+    fn espera_recarga(&self) -> Duration {
+        let minimo = if self.entradas.len() > 2000 { Duration::from_millis(1000) } else { Duration::ZERO };
+        minimo.saturating_sub(self.ultima_carga.elapsed())
+    }
+
+    fn al_salir(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Some(ed) = self.ajustes.as_mut().and_then(|a| a.editor.take()) {
             self.cancelar_editor(ed);
         }
@@ -1597,5 +1689,90 @@ impl eframe::App for Solar {
         for t in &self.tareas {
             t.cancelar.store(true, Ordering::Relaxed);
         }
+    }
+}
+
+
+/// Los archivos seleccionados. Igual que un HashSet, pero lleva la cuenta de
+/// cada cambio para que lo que depende de la selección (la barra de estado)
+/// se recalcule solo cuando hace falta y no en cada cuadro.
+#[derive(Default)]
+pub struct Seleccion {
+    conjunto: HashSet<PathBuf>,
+    version: u64,
+}
+
+impl Seleccion {
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+    pub fn insert(&mut self, r: PathBuf) -> bool {
+        self.version += 1;
+        self.conjunto.insert(r)
+    }
+    pub fn remove(&mut self, r: &Path) -> bool {
+        self.version += 1;
+        self.conjunto.remove(r)
+    }
+    pub fn clear(&mut self) {
+        if !self.conjunto.is_empty() {
+            self.version += 1;
+            self.conjunto.clear();
+        }
+    }
+    pub fn retain(&mut self, f: impl FnMut(&PathBuf) -> bool) {
+        let antes = self.conjunto.len();
+        self.conjunto.retain(f);
+        if self.conjunto.len() != antes {
+            self.version += 1;
+        }
+    }
+    pub fn reemplazar(&mut self, nuevo: HashSet<PathBuf>) {
+        self.version += 1;
+        self.conjunto = nuevo;
+    }
+}
+
+impl std::ops::Deref for Seleccion {
+    type Target = HashSet<PathBuf>;
+    fn deref(&self) -> &HashSet<PathBuf> {
+        &self.conjunto
+    }
+}
+
+/// De qué depende el texto de la barra de estado: (versión de la selección,
+/// versión de lo visible, ¿se ven los ocultos?)
+pub type ClaveEstado = (u64, u64, bool);
+
+/// Lo que se aplicó la última vez (tema, transparencia, escala…), para no
+/// rehacer el estilo en cada cuadro.
+pub struct ClaveApariencia {
+    tema: String,
+    colores: [egui::Color32; 13],
+    transparencia: bool,
+    opacidad: u32,
+    escala: u32,
+    fuente: String,
+    animaciones: bool,
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::Seleccion;
+    use std::path::PathBuf;
+
+    #[test]
+    fn la_seleccion_cuenta_sus_cambios() {
+        let mut s = Seleccion::default();
+        let v0 = s.version();
+        s.clear(); // vacía: no cambia nada
+        assert_eq!(s.version(), v0);
+        s.insert(PathBuf::from("/a"));
+        let v1 = s.version();
+        assert!(v1 > v0);
+        s.retain(|_| true); // no quita nada
+        assert_eq!(s.version(), v1);
+        s.retain(|_| false);
+        assert!(s.version() > v1 && s.is_empty());
     }
 }
