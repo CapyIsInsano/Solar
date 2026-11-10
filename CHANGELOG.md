@@ -2,8 +2,28 @@
 
 ## v0.1.1-alpha — 2026-11-09
 
-Versión de optimización: mismo Solar, gastando menos. Medido con una carpeta
-de 20 300 archivos (`SOLAR_PERFIL=1` muestra estos tiempos).
+Versión de optimización: mismo Solar, gastando menos (y, de paso, arrastrar
+entre ventanas). Medido con una carpeta de 20 300 archivos (`SOLAR_PERFIL=1`
+muestra estos tiempos).
+
+### Arrastrar entre ventanas
+- Ahora puedes sacar archivos de Solar arrastrándolos: a **otra ventana de
+  Solar** (se mueven a la carpeta abierta, o a la carpeta o lugar donde los
+  sueltes; si van a otro disco, se copian) o a una **terminal**, que escribe
+  sus rutas ya entre comillas. También sirve con otros gestores de archivos
+  y programas que acepten archivos.
+- Soltar archivos *en* Solar ya funciona también en **Wayland** (antes solo
+  en X11), y ahora cae donde lo sueltas: sobre una carpeta, un lugar de la
+  barra lateral o una memoria USB, igual que al arrastrar dentro de Solar.
+  Mientras pasa por encima, la carpeta se ilumina y aparece «Soltar aquí».
+- Si el programa de origen solo permite copiar (un navegador, por ejemplo),
+  se copia en vez de mover.
+- En Wayland, mientras arrastras se ve un dibujito del archivo o la carpeta
+  junto al puntero, con cuántos llevas si son varios.
+- Por dentro: winit todavía no sabe empezar arrastres (ni recibirlos en
+  Wayland), así que Solar habla directo con el servidor gráfico —
+  `wl_data_device` en Wayland y el protocolo XDND en X11—, cada uno en un
+  hilo que duerme hasta que pasa algo.
 
 ### Menos trabajo en reposo
 - El hilo que vigila carpetas, papelera y discos ya no se despierta 4 veces

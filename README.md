@@ -65,7 +65,8 @@
 - Cuadrícula y lista, orden natural (la ñ va después de la n), ocultos,
   búsqueda al escribir, selección con banda y teclado.
 - Copiar, mover y pegar con progreso y conflictos; **papelera** compatible
-  con la de tu escritorio; arrastrar y soltar.
+  con la de tu escritorio; arrastrar y soltar, **también entre ventanas**:
+  de un Solar a otro, o a una terminal para escribir la ruta.
 - **Memorias USB** en la barra lateral: montar con un clic y expulsar seguro.
 - **Abrir con** los programas que tienes (Neovim, VSCodium, VS Code,
   Mousepad…), con su ícono, incluidos los de Flatpak.
@@ -257,6 +258,13 @@ la barra de ubicación para **moverlos**; con <kbd>Ctrl</kbd> se **copian**.
 Suéltalos en *Papelera* para tirarlos. Al copiar, Solar también deja las
 rutas como texto en el portapapeles: puedes pegarlas en una terminal.
 
+**Entre ventanas.** Abre dos Solar, uno donde está el archivo y otro donde lo
+quieres, y arrástralo de uno a otro: se **mueve** a la carpeta abierta (o a la
+carpeta o lugar donde lo sueltes); si va a otro disco, se copia. Si lo
+sueltas en una **terminal**, se escribe su ruta, lista para usar
+(`'/home/capy/Mis cosas/nota.txt'`). También funciona con otros gestores de
+archivos y programas que acepten archivos, en Wayland y en X11.
+
 <p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
 <img src="docs/readme/separador.svg" width="100%" alt="">
@@ -442,6 +450,7 @@ Si era tu gestor de archivos predeterminado, regresa al de antes, por ejemplo
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/vista.rs`** | Código Rust | Cuadrícula, lista, selección y clic derecho |
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/iconos.rs`** | Código Rust | Carpetas y archivos vectoriales con la forma del logo |
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/actualizar.rs`** | Código Rust | Buscar en GitHub, compilar y reemplazar el programa |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`src/arrastre_os/`** | Carpeta | Arrastrar entre ventanas: Wayland (`wl_data_device`) y X11 (XDND) |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`config/`** | Carpeta | Ejemplos de <code>config.lua</code> y de un tema |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`recursos/`** | Carpeta | Logo, íconos, sonidos y <code>solar.desktop</code> |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`docs/`** | Carpeta | Capturas y las imágenes de este README |
@@ -474,8 +483,6 @@ carpeta y cada revisión de discos. Apagado no cuesta nada.
 
 - Solo Linux.
 - Todavía no hay pestañas, miniaturas ni deshacer.
-- Arrastrar *desde* Solar hacia otros programas no funciona aún; soltar *en*
-  Solar funciona en X11, en Wayland todavía no.
 - La transparencia necesita un compositor (Niri, Hyprland, KWin, picom…).
 - Si `config.lua` tiene lógica (if, variables), Ajustes la convierte en
   valores fijos la próxima vez que cambies algo desde la ventana.
