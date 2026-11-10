@@ -416,6 +416,19 @@ Si era tu gestor de archivos predeterminado, regresa al de antes, por ejemplo
 `cargo build` compila todo junto: `build.rs` compila el núcleo en C y Lua
 (viene incluido) y los enlaza con la interfaz.
 
+**Hecho para gastar poco** (pensando en laptops como la X220):
+
+- Sin hacer nada, Solar no redibuja ni revisa nada: los cambios de carpetas,
+  de la papelera, de montajes y de discos (`/dev`) llegan por eventos
+  (inotify, mountinfo, eventfd). Lo único que despierta al programa es la
+  biblioteca de accesibilidad, 2 veces por segundo.
+- Leer, ordenar e indexar las carpetas se hace en otro hilo; soltar una
+  carpeta enorme también, y la memoria se le devuelve al sistema.
+- Lo que se dibuja en cada cuadro no copia nada: la barra de estado y el
+  estilo se recalculan solo cuando cambian.
+- Los sonidos se mezclan en un solo hilo con una sola conexión de audio, que
+  se cierra tras 2 s de silencio.
+
 **Así se ve la carpeta del proyecto:**
 
 | | Nombre | Tipo | Qué hay |
@@ -452,6 +465,10 @@ Si era tu gestor de archivos predeterminado, regresa al de antes, por ejemplo
 make pruebas                 # pruebas de Rust (también ejercitan el núcleo)
 make pruebas-nucleo          # núcleo en C con AddressSanitizer + UBSan
 ```
+
+**Medir el rendimiento:** `SOLAR_PERFIL=1 solar` escribe en la terminal cuánto
+tarda cada parte de la ventana por cuadro, el arranque, cada listado de
+carpeta y cada revisión de discos. Apagado no cuesta nada.
 
 **Limitaciones conocidas** (es una alpha):
 
@@ -502,4 +519,4 @@ Usa [egui/eframe](https://github.com/emilk/egui) (MIT/Apache-2.0),
 [resvg](https://github.com/linebender/resvg) (Apache-2.0/MIT). Las imágenes de
 este README salen de [`docs/readme/generar.py`](docs/readme/generar.py).
 
-<p align="center"><br><img src="docs/readme/carpetas/solar.svg" width="48" alt=""><br><sub>☀ Solar · v0.1.0-alpha</sub></p>
+<p align="center"><br><img src="docs/readme/carpetas/solar.svg" width="48" alt=""><br><sub>☀ Solar · v0.1.1-alpha</sub></p>

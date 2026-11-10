@@ -1,5 +1,59 @@
 # Registro de cambios
 
+## v0.1.1-alpha — 2026-11-09
+
+Versión de optimización: mismo Solar, gastando menos. Medido con una carpeta
+de 20 300 archivos (`SOLAR_PERFIL=1` muestra estos tiempos).
+
+### Menos trabajo en reposo
+- El hilo que vigila carpetas, papelera y discos ya no se despierta 4 veces
+  por segundo: duerme hasta que pasa algo (inotify, mountinfo y ahora también
+  `/dev` para memorias USB, con un eventfd para despertarlo). Despertares en
+  reposo: de 6 a 2 por segundo (los 2 que quedan son de la accesibilidad).
+- Los avisos ya no redibujan la ventana 20 veces por segundo mientras están
+  quietos: solo mientras entran o se desvanecen.
+
+### Carpetas grandes
+- La barra de estado con 20 000 archivos seleccionados tardaba 3 ms en cada
+  cuadro: ahora el texto se arma solo cuando cambia la selección (0,02 ms).
+  Mover el mouse con todo seleccionado: de ~31 % a ~19 % de un núcleo.
+- Ordenar por nombre es casi el doble de rápido (camino rápido ASCII en la
+  comparación natural): 20 300 archivos en ~8 ms en vez de ~15 ms.
+- El índice de rutas se arma en el hilo que lee la carpeta (antes trababa la
+  ventana ~5 ms) y la carpeta vieja se suelta en otro hilo.
+- Al salir de una carpeta enorme, la memoria se le devuelve al sistema
+  (`malloc_trim`) y se limitan las arenas de malloc: 140 MB → 127 MB al
+  volver a una carpeta chica.
+- La descripción del tipo ("Imagen PNG"…) se comparte entre archivos y el
+  nombre "plegado" para buscar ya no se guarda dos veces.
+- Si una carpeta grande cambia sin parar (copiando miles de archivos), se
+  relee como mucho una vez por segundo en vez de cada 150 ms.
+
+### Arranque y ventana
+- Revisar si la papelera está vacía (que recorre los discos montados, y en un
+  disco de red puede tardar) ya no se hace en el hilo de la ventana.
+- Comparar si cambió el tema en cada cuadro ya no copia el tema ni arma
+  textos; dibujar cada archivo ya no copia su nombre, ruta y estilo (las
+  entradas son compartidas).
+- Los íconos de los programas de «Abrir con» se buscan y dibujan en un hilo
+  aparte (antes, la primera vez, el menú podía trabarse).
+- Con los sonidos apagados, ni se decodifican.
+
+### Sonido
+- Un solo hilo mezclador con una sola conexión a PulseAudio/PipeWire (o
+  ALSA), con búfer de 60 ms: los clics suenan antes y ya no se abre un hilo y
+  una conexión por cada sonido. Se cierra tras 2 s de silencio. Si suenan
+  varios a la vez, se comprimen suave en vez de saturarse.
+
+### Archivos
+- Copiar a memorias FAT (sin `copy_file_range`) reutiliza el búfer de 1 MiB
+  en vez de pedirlo y soltarlo por cada archivo.
+
+### Para desarrolladores
+- `SOLAR_PERFIL=1` mide cada parte del cuadro, el arranque, los listados y
+  las revisiones de discos.
+- 226 pruebas del núcleo (antes 218) y 16 de Rust (antes 14).
+
 ## v0.1.0-alpha — 2026-11-08
 
 Primera versión de Solar.
