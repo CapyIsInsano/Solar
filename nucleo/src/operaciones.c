@@ -4,6 +4,8 @@
  */
 #include "interno.h"
 
+#include <pthread.h>
+
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -191,11 +193,27 @@ int solar_nombre_libre(const char *dir, const char *nombre, int es_copia, char *
 /*  Copiar                                                               */
 /* ===================================================================== */
 
+/* Búfer de 1 MiB para copiar cuando copy_file_range no se puede (p. ej. a
+ * una memoria USB en FAT). Uno por hilo y reutilizado: antes se pedía y se
+ * soltaba en cada archivo, y copiar miles de archivos chiquitos hacía miles
+ * de mmap/munmap. Se libera solo cuando termina el hilo. */
+enum { TAM_BUF = 1 << 20 };
+static pthread_key_t clave_buf;
+static pthread_once_t buf_una_vez = PTHREAD_ONCE_INIT;
+static void crear_clave_buf(void) { pthread_key_create(&clave_buf, free); }
+
+static char *bufer_del_hilo(void)
+{
+    pthread_once(&buf_una_vez, crear_clave_buf);
+    char *b = pthread_getspecific(clave_buf);
+    if (!b && (b = malloc(TAM_BUF)) != NULL) pthread_setspecific(clave_buf, b);
+    return b;
+}
+
 static int copiar_contenido(Tarea *t, int in, int out, const char *nombre)
 {
     int usar_cfr = 1;
     char *buf = NULL;
-    const size_t TAM_BUF = 1 << 20;
     int r = 0;
     for (;;) {
         ssize_t n;
@@ -207,7 +225,7 @@ static int copiar_contenido(Tarea *t, int in, int out, const char *nombre)
                 continue;
             }
         } else {
-            if (!buf && !(buf = malloc(TAM_BUF))) { r = ENOMEM; break; }
+            if (!buf && !(buf = bufer_del_hilo())) { r = ENOMEM; break; }
             n = read(in, buf, TAM_BUF);
             if (n > 0) {
                 ssize_t escrito = 0;
@@ -232,7 +250,6 @@ static int copiar_contenido(Tarea *t, int in, int out, const char *nombre)
         t->bytes_hechos += (uint64_t)n;
         if (informar(t, nombre, 0)) { r = ECANCELED; break; }
     }
-    free(buf);
     return r;
 }
 

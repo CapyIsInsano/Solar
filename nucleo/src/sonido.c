@@ -6,6 +6,13 @@
  * bibliotecas se abren con dlopen al primer sonido: Solar no las necesita
  * para compilar ni para arrancar, y si no hay ninguna simplemente no suena.
  *
+ * Un solo hilo mezclador toca todo: los sonidos se pasan a 48 kHz estéreo
+ * al cargarlos, se mezclan en bloques de 20 ms y van a una sola conexión de
+ * audio que se abre al primer sonido y se cierra tras 2 s de silencio.
+ * Antes cada clic abría su propio hilo y su propia conexión con el
+ * servidor de audio: más lento en sonar y más trabajo para la PC. Sin
+ * sonidos, el mezclador duerme sin despertarse nunca.
+ *
  * Licencia: GPL-3.0-or-later
  */
 #include "interno.h"
@@ -27,8 +34,12 @@
 #pragma GCC diagnostic pop
 #endif
 
-#define MAX_SONIDOS      16
-#define MAX_SIMULTANEOS  6
+#define MAX_SONIDOS  16
+#define MAX_VOCES    8      /* sonidos sonando a la vez */
+#define FRECUENCIA   48000
+#define CANALES      2
+#define BLOQUE       960    /* cuadros por bloque: 20 ms */
+#define OCIO_MS      2000   /* cerrar la conexión tras este silencio */
 
 typedef struct {
     int16_t *pcm;          /* intercalado */
@@ -37,9 +48,18 @@ typedef struct {
     int      frecuencia;
 } Sonido;
 
+typedef struct {
+    int    id;
+    size_t pos;            /* cuadro por el que va */
+    float  ganancia;
+} Voz;
+
 static Sonido          sonidos[MAX_SONIDOS];
 static pthread_mutex_t candado = PTHREAD_MUTEX_INITIALIZER;
-static atomic_int      sonando = 0;
+static pthread_cond_t  hay_trabajo = PTHREAD_COND_INITIALIZER;
+static Voz             voces[MAX_VOCES];
+static int             n_voces = 0;
+static int             mezclador_vivo = 0;
 
 /* ---------------------------------------------------------------------- */
 /*  Decodificar                                                           */
@@ -85,6 +105,37 @@ static void recortar(Sonido *s)
     }
 }
 
+/* Pasa el sonido a 48 kHz estéreo (lo que espera el mezclador), con
+ * remuestreo lineal: para efectos cortos no se nota la diferencia. */
+static int a_formato_comun(Sonido *s)
+{
+    if (s->frecuencia == FRECUENCIA && s->canales == CANALES) return 0;
+    size_t n = (size_t)((double)s->cuadros * FRECUENCIA / s->frecuencia);
+    if (n == 0) n = 1;
+    int16_t *nuevo = malloc(n * CANALES * sizeof(int16_t));
+    if (!nuevo) return ENOMEM;
+    double paso = (double)s->frecuencia / FRECUENCIA;
+    for (size_t i = 0; i < n; i++) {
+        double x = (double)i * paso;
+        size_t a = (size_t)x;
+        if (a >= s->cuadros) a = s->cuadros - 1;
+        size_t b = a + 1 < s->cuadros ? a + 1 : a;
+        double t = x - (double)a;
+        for (int k = 0; k < CANALES; k++) {
+            int ka = s->canales == 1 ? 0 : k;
+            double va = s->pcm[a * (size_t)s->canales + (size_t)ka];
+            double vb = s->pcm[b * (size_t)s->canales + (size_t)ka];
+            nuevo[i * CANALES + (size_t)k] = (int16_t)(va + (vb - va) * t);
+        }
+    }
+    free(s->pcm);
+    s->pcm = nuevo;
+    s->cuadros = n;
+    s->canales = CANALES;
+    s->frecuencia = FRECUENCIA;
+    return 0;
+}
+
 int solar_sonido_cargar(int32_t id, const uint8_t *datos, size_t tam)
 {
     if (id < 0 || id >= MAX_SONIDOS || !datos || tam == 0) return EINVAL;
@@ -121,12 +172,15 @@ int solar_sonido_cargar(int32_t id, const uint8_t *datos, size_t tam)
     free(dec);
     if (s.cuadros == 0 || s.canales < 1 || s.canales > 2) { free(s.pcm); return EINVAL; }
     recortar(&s);
+    if (s.cuadros > 0 && a_formato_comun(&s) != 0) { free(s.pcm); return ENOMEM; }
 
     pthread_mutex_lock(&candado);
     Sonido viejo = sonidos[id];
     sonidos[id] = s;
+    /* Si se estaba tocando el viejo, se corta (el mezclador lee bajo el candado) */
+    for (int i = 0; i < n_voces; i++)
+        if (voces[i].id == id) voces[i].pos = (size_t)-1;
     pthread_mutex_unlock(&candado);
-    /* Si alguien estaba tocando el viejo, tiene su propia copia */
     free(viejo.pcm);
     return 0;
 }
@@ -146,8 +200,9 @@ double solar_sonido_duracion(int32_t id)
 
 /* PulseAudio simple (también lo ofrece PipeWire con pipewire-pulse) */
 typedef struct { int formato; uint32_t frecuencia; uint8_t canales; } PaSpec;
+typedef struct { uint32_t maxlength, tlength, prebuf, minreq, fragsize; } PaAtributos;
 typedef void *(*PaNuevoFn)(const char *, const char *, int, const char *, const char *,
-                           const PaSpec *, const void *, const void *, int *);
+                           const PaSpec *, const void *, const PaAtributos *, int *);
 typedef int (*PaEscribirFn)(void *, const void *, size_t, int *);
 typedef int (*PaVaciarFn)(void *, int *);
 typedef void (*PaLiberarFn)(void *);
@@ -217,54 +272,148 @@ const char *solar_sonido_salida(void)
     return "";
 }
 
-static int tocar_pulse(const Sonido *s)
+/* ---------------------------------------------------------------------- */
+/*  Mezclador                                                             */
+/* ---------------------------------------------------------------------- */
+
+typedef struct {
+    void *pa;    /* conexión de PulseAudio/PipeWire */
+    void *pcm;   /* o de ALSA */
+} Conexion;
+
+static void abrir_conexion(Conexion *c)
 {
-    PaSpec spec = { 3 /* PA_SAMPLE_S16LE */, (uint32_t)s->frecuencia, (uint8_t)s->canales };
-    int err = 0;
-    void *pa = salida.pa_nuevo(NULL, "Solar", 1 /* PA_STREAM_PLAYBACK */, NULL, "Efecto de Solar",
-                               &spec, NULL, NULL, &err);
-    if (!pa) return -1;
-    salida.pa_escribir(pa, s->pcm, s->cuadros * (size_t)s->canales * sizeof(int16_t), &err);
-    salida.pa_vaciar(pa, &err);
-    salida.pa_liberar(pa);
-    return 0;
+    if (salida.pulse_ok && !atomic_load(&salida.pulse_fallo)) {
+        PaSpec spec = { 3 /* PA_SAMPLE_S16LE */, FRECUENCIA, CANALES };
+        /* Búfer de 60 ms: lo justo para no cortarse, sin retrasar el clic */
+        uint32_t bytes = FRECUENCIA * CANALES * (uint32_t)sizeof(int16_t) * 60 / 1000;
+        PaAtributos at = { (uint32_t)-1, bytes, (uint32_t)-1, (uint32_t)-1, (uint32_t)-1 };
+        int err = 0;
+        c->pa = salida.pa_nuevo(NULL, "Solar", 1 /* PA_STREAM_PLAYBACK */, NULL, "Efectos de Solar",
+                                &spec, NULL, &at, &err);
+        if (c->pa) return;
+        atomic_store(&salida.pulse_fallo, 1);
+    }
+    if (salida.alsa_ok) {
+        void *pcm = NULL;
+        if (salida.alsa_abrir(&pcm, "default", 0 /* PLAYBACK */, 0) < 0 || !pcm) return;
+        /* S16_LE = 2, RW_INTERLEAVED = 3, remuestreo por software, 80 ms */
+        if (salida.alsa_params(pcm, 2, 3, CANALES, FRECUENCIA, 1, 80000) < 0) {
+            salida.alsa_cerrar(pcm);
+            return;
+        }
+        c->pcm = pcm;
+    }
 }
 
-static int tocar_alsa(const Sonido *s)
+static void cerrar_conexion(Conexion *c)
 {
-    void *pcm = NULL;
-    if (salida.alsa_abrir(&pcm, "default", 0 /* PLAYBACK */, 0) < 0 || !pcm) return -1;
-    /* S16_LE = 2, RW_INTERLEAVED = 3, remuestreo por software, 80 ms */
-    if (salida.alsa_params(pcm, 2, 3, (unsigned)s->canales, (unsigned)s->frecuencia, 1, 80000) < 0) {
-        salida.alsa_cerrar(pcm);
-        return -1;
+    int err = 0;
+    if (c->pa) {
+        salida.pa_vaciar(c->pa, &err);
+        salida.pa_liberar(c->pa);
+    }
+    if (c->pcm) {
+        salida.alsa_vaciar(c->pcm);
+        salida.alsa_cerrar(c->pcm);
+    }
+    c->pa = c->pcm = NULL;
+}
+
+static void escribir(Conexion *c, const int16_t *bloque, size_t cuadros)
+{
+    if (c->pa) {
+        int err = 0;
+        if (salida.pa_escribir(c->pa, bloque, cuadros * CANALES * sizeof(int16_t), &err) < 0) {
+            /* El servidor se cayó: pasamos a ALSA para lo que sigue */
+            salida.pa_liberar(c->pa);
+            c->pa = NULL;
+            atomic_store(&salida.pulse_fallo, 1);
+        }
+        return;
     }
     size_t hecho = 0;
-    while (hecho < s->cuadros) {
-        long r = salida.alsa_escribir(pcm, s->pcm + hecho * (size_t)s->canales, s->cuadros - hecho);
+    while (c->pcm && hecho < cuadros) {
+        long r = salida.alsa_escribir(c->pcm, bloque + hecho * CANALES, cuadros - hecho);
         if (r < 0) {
-            if (salida.alsa_recuperar(pcm, (int)r, 1) < 0) break;
+            if (salida.alsa_recuperar(c->pcm, (int)r, 1) < 0) {
+                salida.alsa_cerrar(c->pcm);
+                c->pcm = NULL;
+            }
             continue;
         }
         hecho += (size_t)r;
     }
-    salida.alsa_vaciar(pcm);
-    salida.alsa_cerrar(pcm);
-    return 0;
 }
 
-static void *hilo_tocar(void *arg)
+/* Mezcla hasta un bloque de las voces activas (con el candado tomado).
+ * Devuelve cuántos cuadros salieron (0 si ya no queda nada). */
+static size_t mezclar(int16_t *bloque)
 {
-    Sonido *s = arg;
-    int ok = -1;
-    if (salida.pulse_ok && !atomic_load(&salida.pulse_fallo)) {
-        ok = tocar_pulse(s);
-        if (ok != 0) atomic_store(&salida.pulse_fallo, 1);
+    int32_t acum[BLOQUE * CANALES];
+    memset(acum, 0, sizeof acum);
+    size_t usados = 0;
+    for (int i = 0; i < n_voces; i++) {
+        Voz *v = &voces[i];
+        const Sonido *s = &sonidos[v->id];
+        if (v->pos >= s->cuadros) {
+            voces[i--] = voces[--n_voces];
+            continue;
+        }
+        size_t k = s->cuadros - v->pos;
+        if (k > BLOQUE) k = BLOQUE;
+        const int16_t *p = s->pcm + v->pos * CANALES;
+        for (size_t j = 0; j < k * CANALES; j++) acum[j] += (int32_t)((float)p[j] * v->ganancia);
+        v->pos += k;
+        if (k > usados) usados = k;
     }
-    if (ok != 0 && salida.alsa_ok) tocar_alsa(s);
-    free(s->pcm);
-    free(s);
-    atomic_fetch_sub(&sonando, 1);
+    /* Varios sonidos juntos pueden pasarse del máximo: en vez de cortar en
+     * seco (se oye feo), se comprime suave lo que pasa de ~75 % */
+    const int32_t rodilla = 24576, resto = 32767 - rodilla;
+    for (size_t j = 0; j < usados * CANALES; j++) {
+        int32_t x = acum[j], ax = x < 0 ? -x : x;
+        if (ax > rodilla) {
+            int32_t exceso = ax - rodilla;
+            ax = rodilla + (int32_t)((int64_t)exceso * resto / (exceso + resto));
+            x = x < 0 ? -ax : ax;
+        }
+        bloque[j] = (int16_t)x;
+    }
+    return usados;
+}
+
+static void *hilo_mezclador(void *arg)
+{
+    (void)arg;
+    Conexion c = { 0 };
+    int16_t bloque[BLOQUE * CANALES];
+    pthread_mutex_lock(&candado);
+    for (;;) {
+        if (n_voces == 0) {
+            if (!c.pa && !c.pcm) {
+                /* Nada que tocar y nada abierto: dormir hasta el próximo sonido */
+                pthread_cond_wait(&hay_trabajo, &candado);
+                continue;
+            }
+            struct timespec hasta;
+            clock_gettime(CLOCK_REALTIME, &hasta);
+            hasta.tv_sec += OCIO_MS / 1000;
+            int r = pthread_cond_timedwait(&hay_trabajo, &candado, &hasta);
+            if (r == ETIMEDOUT && n_voces == 0) {
+                pthread_mutex_unlock(&candado);
+                cerrar_conexion(&c);
+                pthread_mutex_lock(&candado);
+            }
+            continue;
+        }
+        size_t cuadros = mezclar(bloque);
+        pthread_mutex_unlock(&candado);
+        if (cuadros > 0) {
+            if (!c.pa && !c.pcm) abrir_conexion(&c);
+            escribir(&c, bloque, cuadros);   /* bloquea al ritmo del audio */
+        }
+        pthread_mutex_lock(&candado);
+    }
     return NULL;
 }
 
@@ -276,47 +425,33 @@ int solar_sonido_reproducir(int32_t id, float volumen)
     pthread_once(&salida.una_vez, cargar_salidas);
     if (!salida.pulse_ok && !salida.alsa_ok) return ENOTSUP;
 
-    /* Demasiados a la vez (clics muy rápidos): ese se omite */
-    if (atomic_fetch_add(&sonando, 1) >= MAX_SIMULTANEOS) {
-        atomic_fetch_sub(&sonando, 1);
-        return EBUSY;
-    }
-
-    Sonido *copia = calloc(1, sizeof *copia);
-    if (!copia) { atomic_fetch_sub(&sonando, 1); return ENOMEM; }
     pthread_mutex_lock(&candado);
-    const Sonido *s = &sonidos[id];
-    if (s->cuadros > 0) {
-        size_t n = s->cuadros * (size_t)s->canales;
-        copia->pcm = malloc(n * sizeof(int16_t));
-        if (copia->pcm) {
-            /* Curva de volumen perceptual (cuadrática) */
-            float g = volumen * volumen;
-            for (size_t i = 0; i < n; i++) copia->pcm[i] = (int16_t)(s->pcm[i] * g);
-            copia->cuadros = s->cuadros;
-            copia->canales = s->canales;
-            copia->frecuencia = s->frecuencia;
-        }
-    }
-    pthread_mutex_unlock(&candado);
-    if (!copia->pcm) {
-        free(copia);
-        atomic_fetch_sub(&sonando, 1);
+    if (sonidos[id].cuadros == 0) {
+        pthread_mutex_unlock(&candado);
         return ENOENT;
     }
-
-    pthread_t h;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&attr, 256 * 1024);
-    int r = pthread_create(&h, &attr, hilo_tocar, copia);
-    pthread_attr_destroy(&attr);
-    if (r) {
-        free(copia->pcm);
-        free(copia);
-        atomic_fetch_sub(&sonando, 1);
-        return r;
+    if (!mezclador_vivo) {
+        pthread_t h;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 256 * 1024);
+        int r = pthread_create(&h, &attr, hilo_mezclador, NULL);
+        pthread_attr_destroy(&attr);
+        if (r) {
+            pthread_mutex_unlock(&candado);
+            return r;
+        }
+        mezclador_vivo = 1;
     }
+    /* Muchos a la vez (clics muy rápidos): el más viejo deja su lugar */
+    if (n_voces == MAX_VOCES) {
+        memmove(voces, voces + 1, (MAX_VOCES - 1) * sizeof *voces);
+        n_voces--;
+    }
+    /* Curva de volumen perceptual (cuadrática) */
+    voces[n_voces++] = (Voz){ id, 0, volumen * volumen };
+    pthread_cond_signal(&hay_trabajo);
+    pthread_mutex_unlock(&candado);
     return 0;
 }

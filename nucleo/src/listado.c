@@ -431,6 +431,19 @@ int solar_comparar_natural(const char *a, const char *b)
 {
     const unsigned char *pa = (const unsigned char *)a, *pb = (const unsigned char *)b;
     while (*pa && *pb) {
+        /* Camino rápido: letras y signos ASCII (lo más común). Da lo mismo
+         * que plegar(), sin decodificar UTF-8 ni llamar funciones. */
+        unsigned char x = *pa, y = *pb;
+        if (x < 0x80 && y < 0x80 && !es_digito(x) && !es_digito(y)) {
+            if (x != y) {
+                if (x >= 'A' && x <= 'Z') x += 32;
+                if (y >= 'A' && y <= 'Z') y += 32;
+                if (x != y) return x < y ? -1 : 1;
+            }
+            pa++;
+            pb++;
+            continue;
+        }
         if (es_digito(*pa) && es_digito(*pb)) {
             const unsigned char *ia = pa, *ib = pb;
             while (*ia == '0' && es_digito(ia[1])) ia++;
