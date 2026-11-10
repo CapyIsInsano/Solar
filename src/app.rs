@@ -232,6 +232,16 @@ pub struct Solar {
     pub(crate) fuente_aplicada: Option<String>,
     pub(crate) dialogo_desde: (Option<std::mem::Discriminant<Dialogo>>, Instant),
     pub(crate) ajustes_desde: Instant,
+    // Arrastrar con otras ventanas (otro Solar, una terminal…)
+    arrastre_os: Option<crate::arrastre_os::ArrastreOs>,
+    /// Un arrastre de afuera va pasando por la ventana
+    externo_encima: bool,
+    /// Lo que acaban de soltar desde afuera (si nadie lo agarra, va a la carpeta abierta)
+    soltado_externo: Option<Vec<PathBuf>>,
+    /// El programa de origen solo permite copiar
+    copiar_externo: bool,
+    /// egui cree que el botón sigue apretado tras pasarle el arrastre al sistema
+    liberar_puntero: bool,
 }
 
 pub struct Inicio {
@@ -329,6 +339,11 @@ impl Solar {
             fuente_aplicada: None,
             dialogo_desde: (None, Instant::now()),
             ajustes_desde: Instant::now(),
+            arrastre_os: crate::arrastre_os::ArrastreOs::nuevo(cc),
+            externo_encima: false,
+            soltado_externo: None,
+            copiar_externo: false,
+            liberar_puntero: false,
         };
         sonido::ajustar(app.config.sonidos, app.config.volumen);
         sonido::iniciar(true);
@@ -1203,7 +1218,7 @@ impl Solar {
                 if rutas.is_empty() {
                     return;
                 }
-                let copiar = copiar || !mismo_dispositivo(&rutas[0], &destino);
+                let copiar = copiar || self.copiar_externo || !mismo_dispositivo(&rutas[0], &destino);
                 self.preparar_operacion(ctx, rutas, destino, copiar);
             }
             Accion::TraerExternos(rutas) => {
@@ -1556,6 +1571,10 @@ impl eframe::App for Solar {
         }
     }
 
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.entrada_arrastre(ctx, raw);
+    }
+
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
         self.al_salir(gl);
     }
@@ -1637,6 +1656,7 @@ impl Solar {
         }
         crate::perfil::medir("lateral", || self.barra_lateral(ui, &mut acciones));
         crate::perfil::medir("central", || self.vista_central(ui, &mut acciones));
+        self.arrastre_sistema(&ctx, &mut acciones);
 
         crate::perfil::medir("capas", || {
             self.dibujar_arrastre(&ctx);
@@ -1652,6 +1672,7 @@ impl Solar {
         for a in acciones {
             self.ejecutar(&ctx, a);
         }
+        self.copiar_externo = false;
         crate::perfil::medir("guardar", || self.guardar_si_hace_falta(&ctx));
         sonido::despachar();
 
@@ -1668,6 +1689,73 @@ impl Solar {
             } else {
                 ctx.request_repaint_after(espera);
             }
+        }
+    }
+
+    /// Traduce los arrastres del sistema a lo que egui ya sabe manejar: el
+    /// puntero «se mueve» por la ventana con la carga puesta y «suelta» donde
+    /// cayeron los archivos, así sirven las mismas carpetas y lugares de siempre.
+    fn entrada_arrastre(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        use crate::arrastre_os::Evento;
+        use egui::{DragAndDrop, Event, PointerButton};
+        let modifiers = ctx.input(|i| i.modifiers);
+        if std::mem::take(&mut self.liberar_puntero) {
+            let pos = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
+            raw.events.push(Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers });
+            raw.events.push(Event::PointerGone);
+        }
+        let Some(os) = self.arrastre_os.as_mut() else { return };
+        for e in os.eventos(ctx, raw) {
+            match e {
+                Evento::Encima(p) => {
+                    if !self.externo_encima {
+                        DragAndDrop::set_payload(ctx, Arrastre(Vec::new()));
+                        self.externo_encima = true;
+                    }
+                    raw.events.push(Event::PointerMoved(p));
+                }
+                Evento::Salio => {
+                    if std::mem::take(&mut self.externo_encima) {
+                        DragAndDrop::clear_payload(ctx);
+                        raw.events.push(Event::PointerGone);
+                    }
+                }
+                Evento::Soltado { rutas, pos, copiar } => {
+                    self.externo_encima = false;
+                    DragAndDrop::set_payload(ctx, Arrastre(rutas.clone()));
+                    self.copiar_externo = copiar;
+                    self.soltado_externo = Some(rutas);
+                    let pos = pos
+                        .or_else(|| ctx.input(|i| i.pointer.latest_pos()))
+                        .unwrap_or_else(|| ctx.content_rect().center());
+                    raw.events.push(Event::PointerMoved(pos));
+                    raw.events.push(Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers });
+                }
+                Evento::PropioTermino => {}
+            }
+        }
+    }
+
+    /// Lo soltado desde afuera que no cayó en una carpeta va a la carpeta
+    /// abierta; y si un arrastre nuestro sale de la ventana, lo sigue el sistema.
+    fn arrastre_sistema(&mut self, ctx: &egui::Context, acciones: &mut Vec<Accion>) {
+        if let Some(rutas) = self.soltado_externo.take()
+            && egui::DragAndDrop::take_payload::<Arrastre>(ctx).is_some()
+            && let Some(dir) = self.ubicacion.ruta()
+        {
+            acciones.push(Accion::Soltar { destino: dir.to_path_buf(), rutas, copiar: false });
+        }
+        let Some(os) = self.arrastre_os.as_mut() else { return };
+        if self.externo_encima || os.arrastrando() {
+            return;
+        }
+        let Some(a) = egui::DragAndDrop::payload::<Arrastre>(ctx) else { return };
+        let (abajo, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos()));
+        let fuera = pos.is_some_and(|p| !ctx.content_rect().shrink(2.0).contains(p));
+        if abajo && fuera && !a.0.is_empty() && os.iniciar(a.0.clone(), self.paleta.acento) {
+            egui::DragAndDrop::clear_payload(ctx);
+            self.liberar_puntero = true;
+            ctx.request_repaint();
         }
     }
 
