@@ -2727,11 +2727,17 @@ dependencies = [
  "cc",
  "eframe",
  "egui-phosphor",
+ "libc",
  "lua-src",
  "pkg-config",
+ "raw-window-handle",
  "resvg",
  "serde_json",
+ "smithay-client-toolkit 0.20.0",
+ "wayland-backend",
  "winit",
+ "x11-dl",
+ "x11rb",
 ]
 
 [[package]]
