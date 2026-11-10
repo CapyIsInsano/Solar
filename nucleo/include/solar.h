@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define SOLAR_VERSION "0.1.0-alpha"
+#define SOLAR_VERSION "0.1.1-alpha"
 
 /* ===================================================================== */
 /*  General                                                              */
@@ -273,7 +273,9 @@ int solar_espacio(const char *ruta, SolarEspacio *espacio);
 enum {
     SOLAR_CAMBIO_CARPETA = 1,
     SOLAR_CAMBIO_MONTAJES = 2,
-    SOLAR_CAMBIO_PAPELERA = 4
+    SOLAR_CAMBIO_PAPELERA = 4,
+    SOLAR_CAMBIO_DISPOSITIVOS = 8, /* apareció o se fue un disco en /dev */
+    SOLAR_CAMBIO_DESPERTADO = 16   /* alguien llamó a solar_vigilante_despertar */
 };
 
 typedef struct SolarVigilante SolarVigilante;
@@ -284,6 +286,9 @@ int  solar_vigilante_observar(SolarVigilante *v, const char *ruta);
 /* Espera hasta 'milisegundos'. Devuelve una máscara SOLAR_CAMBIO_*, 0 si
  * no pasó nada, o -1 si hubo un error. */
 int  solar_vigilante_esperar(SolarVigilante *v, int milisegundos);
+/* Interrumpe una espera desde otro hilo (es lo único que se puede llamar
+ * desde otro hilo). */
+void solar_vigilante_despertar(SolarVigilante *v);
 void solar_vigilante_destruir(SolarVigilante *v);
 
 /* ===================================================================== */
