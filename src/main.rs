@@ -13,6 +13,7 @@ compile_error!("Solar por ahora es exclusivo de Linux (el núcleo usa inotify, /
 mod actualizar;
 mod ajustes;
 mod app;
+mod arrastre_os;
 mod atajos;
 mod barras;
 mod dialogos;
