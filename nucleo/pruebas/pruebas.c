@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static int fallos = 0, total = 0;
@@ -98,6 +99,13 @@ static void prueba_natural(void)
     REVISAR(solar_comparar_natural("a", "B") < 0);
     REVISAR(solar_comparar_natural("capítulo 007", "capítulo 7") == 0);
     REVISAR(solar_comparar_natural("x", "x1") < 0);
+    /* Camino rápido ASCII: mayúsculas, números a mitad del nombre, signos */
+    REVISAR(solar_comparar_natural("Zeta", "alfa") > 0);
+    REVISAR(solar_comparar_natural("archivo_10.txt", "Archivo_9.txt") > 0);
+    REVISAR(solar_comparar_natural("a19", "a1x") > 0);
+    REVISAR(solar_comparar_natural("Informe-Final", "informe-final") == 0);
+    REVISAR(solar_comparar_natural("anz", "año") < 0);
+    REVISAR(solar_comparar_natural("cafe", "Café") == 0);
 }
 
 static void prueba_tipos(void)
@@ -562,6 +570,16 @@ static void prueba_dispositivos_vigilante(void)
     int cambios = solar_vigilante_esperar(v, 1000);
     REVISAR(cambios > 0 && (cambios & SOLAR_CAMBIO_CARPETA));
     REVISAR(solar_vigilante_observar(v, NULL) == 0);
+    /* Despertar desde otro lado: la espera larga termina enseguida */
+    solar_vigilante_despertar(v);
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    cambios = solar_vigilante_esperar(v, 5000);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = (double)(t1.tv_sec - t0.tv_sec) * 1000 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6;
+    REVISAR(cambios > 0 && (cambios & SOLAR_CAMBIO_DESPERTADO) && ms < 1000);
+    /* Y ya no queda despierta: la siguiente espera corta no ve nada */
+    REVISAR(solar_vigilante_esperar(v, 30) == 0);
     solar_vigilante_destruir(v);
 }
 
