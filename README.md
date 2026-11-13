@@ -60,10 +60,33 @@
 - **Animaciones** suaves y **efectos de sonido** (los de Capyro). Las dos se
   pueden apagar.
 
+**Órbita: tus carpetas como un sistema solar** (opcional)
+
+- La carpeta abierta va en el **centro**, como el sol, y lo que tiene adentro
+  le da vueltas en órbitas. Todo se ve con su ícono de siempre: las carpetas
+  con su color y logotipo, y los archivos (`.txt`, `.mp4`, `.pdf`…) con el
+  de su tipo. Los más pesados se ven un poco más grandes.
+- Tú decides si **giran** y qué tan rápido, en qué **orden** se acomodan (los
+  más grandes al centro, los más chicos, por nombre, por tipo, los más
+  recientes o al azar) y si las órbitas son **eléctricas**: un rayo continuo
+  que tiembla suave, sin parpadear.
+- Se detiene al pasar el mouse para que le atines; con la rueda te acercas y
+  con el botón de la rueda mueves la vista.
+
+**Pestañas y espacios de trabajo**
+
+- **Pestañas** como en Windows 11: arrástralas para reordenarlas, abre una
+  carpeta en otra con el clic de la rueda y reabre la que cerraste.
+- **Espacios de trabajo** («Trabajo», «Juegos», «Escuela»…): cada uno
+  recuerda sus pestañas y la vista de cada una, y puede tener su propio tema
+  y sus propios ajustes. Al abrir Solar vuelves a donde te quedaste.
+
 **Hace lo que esperas de un gestor de archivos**
 
-- Cuadrícula y lista, orden natural (la ñ va después de la n), ocultos,
-  búsqueda al escribir, selección con banda y teclado.
+- **4 vistas** como en Windows: íconos (de pequeños a muy grandes), lista con
+  detalles, mosaicos y Órbita. Al cambiar de vista no se pierde la selección.
+- Orden natural (la ñ va después de la n), ocultos, búsqueda al escribir,
+  selección con banda y teclado.
 - Copiar, mover y pegar con progreso y conflictos; **papelera** compatible
   con la de tu escritorio; arrastrar y soltar, **también entre ventanas**:
   de un Solar a otro, o a una terminal para escribir la ruta.
@@ -96,7 +119,18 @@ carpetas con color y logotipo, una SSD en *Dispositivos* y el logo en el dock.
   <img src="docs/capturas/principal.png" width="100%" alt="Solar mostrando carpetas de colores con logotipos">
 </p>
 
+**Vista Órbita:** la carpeta personal va en el centro; sus carpetas giran
+más cerca y los archivos más afuera, sobre órbitas eléctricas.
+
+<p align="center">
+  <img src="docs/capturas/orbita.png" width="100%" alt="Vista Órbita: la carpeta personal en el centro, con sus carpetas y archivos girando a su alrededor en órbitas eléctricas">
+</p>
+
 <table>
+<tr>
+<td width="50%"><img src="docs/capturas/espacios.png" alt="El menú de espacios de trabajo, con la carpeta Juegos en Órbita y el tema Venus"><p align="center"><sub><b>Espacios de trabajo</b>, cada uno con su tema</sub></p></td>
+<td width="50%"><img src="docs/capturas/menu-vista.png" alt="El menú Vista, como el de Windows"><p align="center"><sub>El menú <b>Vista</b>: tamaños de íconos, lista, mosaicos y órbita</sub></p></td>
+</tr>
 <tr>
 <td width="50%"><img src="docs/capturas/clic-derecho.png" alt="Clic derecho con los colores de carpeta"><p align="center"><sub>Clic derecho → <b>Color de carpeta</b></sub></p></td>
 <td width="50%"><img src="docs/capturas/logotipos.png" alt="Los 54 logotipos"><p align="center"><sub>Clic derecho → <b>Logotipo</b></sub></p></td>
@@ -119,7 +153,7 @@ carpetas con color y logotipo, una SSD en *Dispositivos* y el logo en el dock.
 </tr>
 <tr>
 <td><img src="docs/capturas/actualizaciones.png" alt="Ajustes: actualizaciones"><p align="center"><sub>Ajustes → <b>Actualizaciones</b></sub></p></td>
-<td></td>
+<td><img src="docs/capturas/mosaicos.png" alt="Vista de mosaicos"><p align="center"><sub>Vista de <b>mosaicos</b>, con el tipo y el tamaño</sub></p></td>
 </tr>
 </table>
 
@@ -239,7 +273,7 @@ Busca `lua5.4`, `lua54` o `lua` con pkg-config (en Gentoo: `dev-lang/lua:5.4`).
 | Escribir una ruta | <kbd>Ctrl</kbd> + <kbd>L</kbd> o clic en el espacio vacío de la barra |
 | Buscar en la carpeta | Empieza a escribir, o <kbd>Ctrl</kbd> + <kbd>F</kbd> |
 | Ver ocultos | <kbd>Ctrl</kbd> + <kbd>H</kbd> |
-| Cuadrícula / lista | <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Íconos / lista / mosaicos / órbita | <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> / <kbd>4</kbd>, o el menú *Vista* de la barra |
 | Íconos más grandes o chicos | <kbd>Ctrl</kbd> + rueda, <kbd>Ctrl</kbd> + <kbd>Plus</kbd> / <kbd>Ctrl</kbd> + <kbd>Minus</kbd> |
 | Nueva carpeta / archivo | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> / <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>N</kbd> |
 | Renombrar | <kbd>F2</kbd> |
@@ -247,6 +281,11 @@ Busca `lua5.4`, `lua54` o `lua` con pkg-config (en Gentoo: `dev-lang/lua:5.4`).
 | Copiar, cortar, pegar, duplicar | <kbd>Ctrl</kbd> + <kbd>C</kbd> <kbd>Ctrl</kbd> + <kbd>X</kbd> <kbd>Ctrl</kbd> + <kbd>V</kbd> <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> |
 | Propiedades | <kbd>Alt</kbd> + <kbd>Enter</kbd> |
 | Añadir a Lugares | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Pestaña nueva / cerrar / reabrir la cerrada | <kbd>Ctrl</kbd> + <kbd>T</kbd> / <kbd>Ctrl</kbd> + <kbd>W</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> |
+| Pestaña siguiente / anterior | <kbd>Ctrl</kbd> + <kbd>Tab</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> |
+| Abrir una carpeta en otra pestaña | Clic con la rueda |
+| Espacios de trabajo | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd>, o el botón a la izquierda de las pestañas |
+| Nueva ventana | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
 | Terminal aquí | <kbd>F4</kbd> |
 | Barra lateral | <kbd>F9</kbd> |
 | Ajustes | <kbd>Ctrl</kbd> + <kbd>,</kbd> |
@@ -257,6 +296,26 @@ Arrastra archivos sobre una carpeta, un lugar, una memoria USB o un pedazo de
 la barra de ubicación para **moverlos**; con <kbd>Ctrl</kbd> se **copian**.
 Suéltalos en *Papelera* para tirarlos. Al copiar, Solar también deja las
 rutas como texto en el portapapeles: puedes pegarlas en una terminal.
+
+**Pestañas.** Arrástralas para cambiarlas de lugar; el clic con la rueda
+cierra una. Si arrastras archivos sobre una pestaña y los sueltas, se mueven a
+esa carpeta; si esperas un momento encima, la pestaña se abre y puedes
+soltarlos donde quieras. Con el clic derecho: duplicarla, abrirla en una
+ventana nueva, cerrar las demás o mandarla a otro espacio de trabajo.
+
+**Espacios de trabajo.** Con el botón de la izquierda de las pestañas creas,
+renombras y eliminas espacios, y cambias de uno a otro. Cada espacio guarda
+sus pestañas, la vista de cada una y, si quieres, su propio tema y sus propios
+ajustes (*Configurar este espacio…*). Un espacio solo se abre en una ventana a
+la vez: si abres otra ventana, usa un espacio **temporal** (con borde
+punteado) que no se guarda, salvo que elijas *Guardar como espacio…*.
+
+**Órbita.** Al pasar el mouse por un archivo todo se detiene. La rueda acerca
+y aleja, el botón de la rueda mueve la vista y la mira la vuelve a centrar.
+La barrita de arriba cambia el giro, la velocidad, el acomodo y la
+electricidad (también en *Ajustes → Archivos*). Con el teclado, <kbd>←</kbd>
+<kbd>→</kbd> recorren la órbita y <kbd>↑</kbd> <kbd>↓</kbd> saltan de anillo.
+Doble clic en la carpeta del centro sube a la de arriba.
 
 **Entre ventanas.** Abre dos Solar, uno donde está el archivo y otro donde lo
 quieres, y arrástralo de uno a otro: se **mueve** a la carpeta abierta (o a la
@@ -278,6 +337,7 @@ archivos y programas que acepten archivos, en Wayland y en X11.
 | | Archivo | Para qué |
 |:-:|---|---|
 | <img src="docs/readme/archivos/lua.svg" width="20" alt=""> | `~/.config/solar/config.lua` | Todos los ajustes. Solar lo crea la primera vez y lo reescribe cuando cambias algo en Ajustes. |
+| <img src="docs/readme/archivos/lua.svg" width="20" alt=""> | `~/.config/solar/espacios.lua` | Tus espacios de trabajo con sus pestañas. Solar lo reescribe solo; edítalo con Solar cerrado. |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | `~/.config/solar/temas/` | Tus temas de colores (Solar nunca los reescribe). |
 | <img src="docs/readme/archivos/texto.svg" width="20" alt=""> | `~/.local/share/solar/carpetas.tsv` | El color y logotipo de cada carpeta. |
 | <img src="docs/readme/archivos/texto.svg" width="20" alt=""> | `~/.config/mimeapps.list` | El programa predeterminado de cada tipo de archivo (el mismo de los demás programas). |
@@ -297,7 +357,9 @@ return {
   barra_ubicacion = "abajo",
   barra_lateral = "derecha",
   sonidos = true,
-  atajos = { terminal = "Ctrl+T", eliminar = false },
+  vista = "orbita",              -- cuadricula, lista, mosaicos u orbita
+  orbita_velocidad = 0.5,        -- que la órbita gire más despacio
+  atajos = { terminal = "Ctrl+Alt+T", eliminar = false },
 }
 ```
 
@@ -443,11 +505,14 @@ Si era tu gestor de archivos predeterminado, regresa al de antes, por ejemplo
 |:-:|---|---|---|
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/`** | Carpeta | El núcleo en C: listado, copiar/mover, papelera, USB, MIME y programas, sonido, Lua |
 | <img src="docs/readme/archivos/c.svg" width="20" alt=""> | **`nucleo/include/solar.h`** | Encabezado C | La API pública del núcleo |
-| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/pruebas/`** | Carpeta | 218 revisiones con AddressSanitizer + UBSan |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/pruebas/`** | Carpeta | 251 revisiones con AddressSanitizer + UBSan |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`nucleo/terceros/minimp3/`** | Carpeta | Decodificador de MP3 (CC0) |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`src/`** | Carpeta | La interfaz en Rust (egui): ventana, vistas, menús, diálogos, Ajustes |
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/app.rs`** | Código Rust | Estado, navegación y acciones |
-| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/vista.rs`** | Código Rust | Cuadrícula, lista, selección y clic derecho |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/vista.rs`** | Código Rust | Lo común a todas las vistas: selección, banda, arrastrar, teclado y animaciones |
+| <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`src/vista/`** | Carpeta | Cada vista (íconos, lista, mosaicos, órbita) y los menús de clic derecho |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/pestanas.rs`** | Código Rust | Las pestañas y su barra |
+| <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/espacios.rs`** | Código Rust | Espacios de trabajo: guardar, cambiar, un espacio por ventana |
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/iconos.rs`** | Código Rust | Carpetas y archivos vectoriales con la forma del logo |
 | <img src="docs/readme/archivos/rust.svg" width="20" alt=""> | **`src/actualizar.rs`** | Código Rust | Buscar en GitHub, compilar y reemplazar el programa |
 | <img src="docs/readme/carpetas/carpeta.svg" width="20" alt=""> | **`src/arrastre_os/`** | Carpeta | Arrastrar entre ventanas: Wayland (`wl_data_device`) y X11 (XDND) |
@@ -482,14 +547,13 @@ carpeta y cada revisión de discos. Apagado no cuesta nada.
 **Limitaciones conocidas** (es una alpha):
 
 - Solo Linux.
-- Todavía no hay pestañas, miniaturas ni deshacer.
+- Todavía no hay miniaturas ni deshacer.
 - La transparencia necesita un compositor (Niri, Hyprland, KWin, picom…).
 - Si `config.lua` tiene lógica (if, variables), Ajustes la convierte en
   valores fijos la próxima vez que cambies algo desde la ventana.
 
-**Ideas para las siguientes versiones:** pestañas, miniaturas, deshacer,
-búsqueda en subcarpetas, panel doble, comprimir/extraer y logotipos con
-imágenes propias.
+**Ideas para las siguientes versiones:** miniaturas, deshacer, búsqueda en
+subcarpetas, panel doble, comprimir/extraer y logotipos con imágenes propias.
 
 <p align="right"><sub><a href="#inicio">↑ Subir</a></sub></p>
 
@@ -526,4 +590,4 @@ Usa [egui/eframe](https://github.com/emilk/egui) (MIT/Apache-2.0),
 [resvg](https://github.com/linebender/resvg) (Apache-2.0/MIT). Las imágenes de
 este README salen de [`docs/readme/generar.py`](docs/readme/generar.py).
 
-<p align="center"><br><img src="docs/readme/carpetas/solar.svg" width="48" alt=""><br><sub>☀ Solar · v0.1.1-alpha</sub></p>
+<p align="center"><br><img src="docs/readme/carpetas/solar.svg" width="48" alt=""><br><sub>☀ Solar · v0.1.2-alpha</sub></p>
