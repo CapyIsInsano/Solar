@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define SOLAR_VERSION "0.1.1-alpha"
+#define SOLAR_VERSION "0.1.2-alpha"
 
 /* ===================================================================== */
 /*  General                                                              */
@@ -326,7 +326,35 @@ void   solar_carpetas_cerrar(SolarCarpetas *db);
 
 enum { SOLAR_POS_ARRIBA = 0, SOLAR_POS_ABAJO = 1 };
 enum { SOLAR_LADO_IZQUIERDA = 0, SOLAR_LADO_DERECHA = 1 };
-enum { SOLAR_VISTA_CUADRICULA = 0, SOLAR_VISTA_LISTA = 1 };
+enum { SOLAR_VISTA_CUADRICULA = 0, SOLAR_VISTA_LISTA = 1, SOLAR_VISTA_MOSAICOS = 2, SOLAR_VISTA_ORBITA = 3 };
+
+/* En qué orden se acomodan los planetas de la vista Órbita (del centro
+ * hacia afuera). */
+enum {
+    SOLAR_ORBITA_GRANDE_PRIMERO = 0,
+    SOLAR_ORBITA_CHICO_PRIMERO = 1,
+    SOLAR_ORBITA_NOMBRE = 2,
+    SOLAR_ORBITA_TIPO = 3,
+    SOLAR_ORBITA_FECHA = 4,
+    SOLAR_ORBITA_ALEATORIO = 5,
+};
+
+/* Cómo se ven los archivos. Lo usa la configuración general y también
+ * cada espacio de trabajo que tenga ajustes propios. */
+typedef struct {
+    int32_t tamano_iconos;          /* 40 – 160 */
+    int32_t mostrar_ocultos;
+    int32_t carpetas_primero;
+    int32_t orden;                  /* SOLAR_ORDEN_* */
+    int32_t orden_descendente;
+    /* Vista Órbita */
+    int32_t orbita_girar;           /* los planetas dan vueltas */
+    double  orbita_velocidad;       /* 0.10 – 4.00 (1 = normal) */
+    int32_t orbita_orden;           /* SOLAR_ORBITA_* */
+    int32_t orbita_electricidad;    /* órbitas con rayos */
+} SolarAjustesVista;
+
+void solar_ajustes_vista_defecto(SolarAjustesVista *a);
 
 typedef struct {
     char *nombre;
@@ -352,17 +380,14 @@ typedef struct {
     int32_t barra_lateral;          /* SOLAR_LADO_* */
     int32_t mostrar_barra_lateral;
     /* Archivos */
-    int32_t vista;                  /* SOLAR_VISTA_* */
-    int32_t tamano_iconos;          /* 40 – 160 */
-    int32_t mostrar_ocultos;
-    int32_t carpetas_primero;
-    int32_t orden;                  /* SOLAR_ORDEN_* */
-    int32_t orden_descendente;
+    int32_t vista;                  /* SOLAR_VISTA_* (para espacios nuevos) */
+    SolarAjustesVista archivos;
     int32_t un_clic;
     /* Comportamiento */
     int32_t confirmar_papelera;
     int32_t confirmar_eliminar;
     char   *terminal;               /* "" = detectar */
+    int32_t restaurar_sesion;       /* reabrir las pestañas de la última vez */
     /* Dispositivos */
     int32_t mostrar_usb;
     int32_t mostrar_discos_internos;
@@ -393,6 +418,45 @@ void solar_config_liberar(SolarConfig *c);
 
 /* Tabla de atajos por defecto (estática, no liberar). */
 size_t solar_atajos_defecto(const SolarAtajo **tabla);
+
+/* ===================================================================== */
+/*  Espacios de trabajo (~/.config/solar/espacios.lua)                   */
+/* ===================================================================== */
+
+typedef struct {
+    char   *ruta;          /* "~/Descargas" ("" si es la papelera) */
+    int32_t papelera;
+    int32_t vista;         /* SOLAR_VISTA_* */
+} SolarPestana;
+
+typedef struct {
+    char   *id;            /* no cambia al renombrar */
+    char   *nombre;
+    char   *icono;         /* logotipo ("codigo", "mando"…) o "" */
+    char   *color;         /* "#RRGGBB" o "" */
+    char   *tema;          /* "" = el de config.lua */
+    int32_t vista;         /* para las pestañas nuevas */
+    int32_t ajustes_propios;
+    SolarAjustesVista ajustes; /* solo cuentan si ajustes_propios */
+    SolarPestana *pestanas;
+    size_t  n_pestanas;
+    int32_t activa;        /* índice de la pestaña activa (desde 0) */
+} SolarEspacioTrabajo;
+
+typedef struct {
+    char *activo;          /* id del último espacio usado */
+    SolarEspacioTrabajo *espacios;
+    size_t n_espacios;
+} SolarEspacios;
+
+/* Lee el archivo de espacios. 'base' son los ajustes por defecto para los
+ * espacios que no digan los suyos (los de config.lua). Devuelve 0, ENOENT
+ * si no existe o EINVAL si el Lua tiene un error ('avisos' dice por qué).
+ * Siempre hay que liberar 'e', aunque falle. */
+int  solar_espacios_cargar(const char *archivo, const SolarAjustesVista *base, SolarEspacios *e,
+                           char *avisos, size_t avisos_tam);
+int  solar_espacios_guardar(const char *archivo, const SolarEspacios *e);
+void solar_espacios_liberar(SolarEspacios *e);
 
 /* ===================================================================== */
 /*  Temas                                                                */
