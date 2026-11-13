@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "solar"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "cc",
  "eframe",

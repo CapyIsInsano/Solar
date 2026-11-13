@@ -1,6 +1,6 @@
 [package]
 name = "solar"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 edition = "2024"
 rust-version = "1.95"
 description = "Solar — gestor de archivos con núcleo en C, interfaz en Rust y configuración en Lua"
