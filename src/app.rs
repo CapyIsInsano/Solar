@@ -133,6 +133,32 @@ pub enum Accion {
     TraerExternos(Vec<PathBuf>),
     AcercaDe,
     Tarea(TipoTarea),
+    // Vistas
+    FijarTamano(f32),
+    Orbita(crate::vista::CambioOrbita),
+    // Pestañas
+    NuevaPestana,
+    AbrirEnPestana(PathBuf),
+    AbrirPapeleraEnPestana,
+    CerrarPestana(u64),
+    ActivarPestana(u64),
+    SiguientePestana,
+    AnteriorPestana,
+    MoverPestana { de: usize, a: usize },
+    DuplicarPestana(u64),
+    CerrarOtras(u64),
+    CerrarDerecha(u64),
+    ReabrirPestana,
+    PestanaAEspacio { pestana: u64, espacio: String },
+    // Espacios de trabajo
+    MenuEspacios,
+    CambiarEspacio(String),
+    NuevoEspacio,
+    ConfigurarEspacio,
+    GuardarFormEspacio(Box<crate::espacios::FormEspacio>),
+    RenombrarEspacio(String),
+    PreguntarEliminarEspacio(String, String),
+    EliminarEspacio(String),
     BuscarActualizaciones,
     Actualizar(Box<actualizar::Version>),
     CancelarActualizacion,
@@ -146,6 +172,7 @@ pub type MenuProgramas = (Vec<PathBuf>, Rc<Vec<Programa>>);
 pub struct Rutas {
     pub config: PathBuf,
     pub temas: PathBuf,
+    pub espacios: PathBuf,
 }
 
 pub struct Solar {
@@ -189,8 +216,29 @@ pub struct Solar {
     pub(crate) desplazar_a_foco: bool,
     pub(crate) seleccionar_al_cargar: Option<Vec<PathBuf>>,
     pub(crate) banda: Option<Banda>,
-    pub(crate) columnas: usize,
-    pub(crate) filas_visibles: usize,
+    /// Cómo quedó acomodada la vista en el último cuadro (para el teclado)
+    pub(crate) disposicion: Option<Box<dyn crate::vista::Disposicion>>,
+    pub(crate) orbita: crate::vista::EstadoOrbita,
+    /// Hay que releer la carpeta (cambió el orden)
+    pub(crate) cargar_contexto_pendiente: bool,
+
+    // Pestañas
+    pub(crate) pestanas: Vec<crate::pestanas::Pestana>,
+    pub(crate) activa: usize,
+    pub(crate) siguiente_pestana: u64,
+    pub(crate) cerradas: Vec<crate::pestanas::Cerrada>,
+    /// Dónde va la siguiente pestaña abierta en segundo plano
+    pub(crate) posicion_siguiente: Option<usize>,
+    /// Archivos arrastrados encima de una pestaña (desde cuándo)
+    pub(crate) espera_pestana: Option<(u64, Instant)>,
+
+    // Espacios de trabajo
+    pub(crate) espacio_trabajo: crate::espacios::EspacioActual,
+    pub(crate) espacios: Vec<nucleo::EspacioTrabajo>,
+    pub(crate) ops_espacios: Vec<crate::espacios::OpEspacio>,
+    pub(crate) espacios_sucios: Option<Instant>,
+    pub(crate) ocupados: HashSet<String>,
+    pub(crate) abrir_menu_espacios: bool,
 
     pub(crate) busqueda: Option<String>,
     pub(crate) enfocar_busqueda: bool,
@@ -251,6 +299,8 @@ pub struct Inicio {
     pub carpetas: Carpetas,
     pub avisos: Vec<String>,
     pub abrir: Option<PathBuf>,
+    /// La ventana que pidió abrir esta (para usar su espacio)
+    pub desde_espacio: Option<String>,
 }
 
 impl Solar {
@@ -265,10 +315,22 @@ impl Solar {
         let mut avisos = inicio.avisos;
         avisos.append(&mut avisos_atajos);
 
-        let tema = buscar_tema(&inicio.temas, &inicio.config.tema).clone();
+        // Espacio de trabajo y pestañas de la última vez
+        let sesion = crate::espacios::iniciar_sesion(&inicio.rutas.espacios, &inicio.config, inicio.abrir.clone(), inicio.desde_espacio.as_deref());
+        if let Some(a) = &sesion.avisos {
+            avisos.push(format!("espacios.lua: {a}"));
+        }
+        let tema_id = if sesion.espacio.datos.tema.is_empty() { inicio.config.tema.clone() } else { sesion.espacio.datos.tema.clone() };
+        let tema = buscar_tema(&inicio.temas, &tema_id).clone();
         let paleta = tema::paleta(&tema, inicio.config.transparencia, inicio.config.opacidad);
-        let hogar = nucleo::dir_hogar();
-        let ubicacion = Ubicacion::Ruta(inicio.abrir.unwrap_or(hogar));
+        let pestanas: Vec<crate::pestanas::Pestana> = sesion
+            .pestanas
+            .iter()
+            .enumerate()
+            .map(|(i, (u, v))| crate::pestanas::Pestana::nueva(i as u64 + 1, u.clone(), *v))
+            .collect();
+        let activa = sesion.activa.min(pestanas.len() - 1);
+        let ubicacion = pestanas[activa].ubicacion.clone();
 
         let mut app = Self {
             rutas: inicio.rutas,
@@ -303,8 +365,21 @@ impl Solar {
             desplazar_a_foco: false,
             seleccionar_al_cargar: None,
             banda: None,
-            columnas: 1,
-            filas_visibles: 10,
+            disposicion: None,
+            orbita: Default::default(),
+            cargar_contexto_pendiente: false,
+            siguiente_pestana: pestanas.len() as u64,
+            pestanas,
+            activa,
+            cerradas: Vec::new(),
+            posicion_siguiente: None,
+            espera_pestana: None,
+            espacio_trabajo: sesion.espacio,
+            espacios: sesion.lista,
+            ops_espacios: Vec::new(),
+            espacios_sucios: None,
+            ocupados: HashSet::new(),
+            abrir_menu_espacios: false,
             busqueda: None,
             enfocar_busqueda: false,
             editando_ruta: None,
@@ -353,6 +428,18 @@ impl Solar {
         }
         app.aplicar_apariencia(&ctx);
         app.cargar(&ctx, true);
+        // Que el archivo de espacios exista y diga cuál se usó por última vez
+        if !app.espacio_trabajo.temporal {
+            app.guardar_espacios();
+        }
+        // Un atajo nuevo que chocaba con uno tuyo se quedó sin atajo: se
+        // guarda así para no volver a avisar cada vez que abras Solar
+        let sin_atajo_por_choque = app.atajos.lista.iter().any(|(id, c)| {
+            c.is_none() && app.config.atajos.iter().any(|(i, t)| i == id && crate::atajos::Combinacion::parsear(t).is_some())
+        });
+        if sin_atajo_por_choque {
+            app.config_cambio();
+        }
         if !app.avisos_inicio.is_empty() {
             app.dialogo = Some(Dialogo::AvisosConfig(app.avisos_inicio.clone()));
         }
@@ -364,7 +451,7 @@ impl Solar {
     // ------------------------------------------------------------------
 
     pub fn tema_actual(&self) -> &Tema {
-        buscar_tema(&self.temas, &self.config.tema)
+        buscar_tema(&self.temas, self.tema_id())
     }
 
     pub(crate) fn aplicar_apariencia(&mut self, ctx: &egui::Context) {
@@ -513,7 +600,9 @@ impl Solar {
         self.visibles.clear();
         self.visibles_sucios = true;
         self.animar_carga = true;
+        self.posicion_siguiente = None;
         self.cargar(ctx, true);
+        self.marcar_sesion();
     }
 
     pub fn atras(&mut self, ctx: &egui::Context) {
@@ -551,11 +640,12 @@ impl Solar {
                 if nueva {
                     self.vigia.enviar(ComandoVigia::Observar(Some(dir.clone())));
                 }
+                let av = *self.av();
                 tareas::listar(
                     dir.clone(),
-                    self.config.orden,
-                    self.config.orden_descendente,
-                    self.config.carpetas_primero,
+                    av.orden,
+                    av.orden_descendente,
+                    av.carpetas_primero,
                     self.generacion,
                     self.carpetas.clone(),
                     self.tx.clone(),
@@ -580,7 +670,7 @@ impl Solar {
             .as_deref()
             .map(|b| crate::formato::plegar(b.trim()))
             .filter(|b| !b.is_empty());
-        let ocultos = self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera;
+        let ocultos = self.av().mostrar_ocultos || self.ubicacion == Ubicacion::Papelera;
         self.visibles = self
             .entradas
             .iter()
@@ -942,6 +1032,14 @@ impl Solar {
             }
             "vista_cuadricula" => Accion::CambiarVista(Vista::Cuadricula),
             "vista_lista" => Accion::CambiarVista(Vista::Lista),
+            "vista_mosaicos" => Accion::CambiarVista(Vista::Mosaicos),
+            "vista_orbita" => Accion::CambiarVista(Vista::Orbita),
+            "nueva_pestana" => Accion::NuevaPestana,
+            "cerrar_pestana" => Accion::CerrarPestana(self.id_pestana()),
+            "siguiente_pestana" => Accion::SiguientePestana,
+            "anterior_pestana" => Accion::AnteriorPestana,
+            "reabrir_pestana" => Accion::ReabrirPestana,
+            "espacios" => Accion::MenuEspacios,
             "acercar" => Accion::Zoom(8.0),
             "alejar" => Accion::Zoom(-8.0),
             "barra_lateral" => Accion::AlternarLateral,
@@ -966,6 +1064,13 @@ impl Solar {
             | Accion::AbrirCon(_)
             | Accion::AbrirConPrograma { .. }
             | Accion::AbrirEnVentana(_)
+            | Accion::AbrirEnPestana(_)
+            | Accion::NuevaPestana
+            | Accion::ActivarPestana(_)
+            | Accion::SiguientePestana
+            | Accion::AnteriorPestana
+            | Accion::NuevoEspacio
+            | Accion::ConfigurarEspacio
             | Accion::AbrirTerminal(_)
             | Accion::Copiar(_)
             | Accion::Cortar(_)
@@ -1118,44 +1223,123 @@ impl Solar {
                 self.seleccion.reemplazar(self.visibles.iter().map(|&i| self.entradas[i].ruta.clone()).collect());
             }
             Accion::AlternarOcultos => {
-                self.config.mostrar_ocultos = !self.config.mostrar_ocultos;
-                self.visibles_sucios = true;
-                self.config_cambio();
+                self.cambiar_av(|a| a.mostrar_ocultos = !a.mostrar_ocultos);
                 self.avisar(
-                    if self.config.mostrar_ocultos { "Mostrando archivos ocultos." } else { "Archivos ocultos escondidos." },
+                    if self.av().mostrar_ocultos { "Mostrando archivos ocultos." } else { "Archivos ocultos escondidos." },
                     TipoAviso::Info,
                 );
             }
             Accion::CambiarVista(v) => {
-                self.config.vista = v;
-                self.desplazar_a_foco = true;
-                self.config_cambio();
+                // Cambia la vista de esta pestaña; la selección, el foco, la
+                // búsqueda y la carpeta siguen igual
+                if let Some(p) = self.pestanas.get_mut(self.activa)
+                    && p.vista != v
+                {
+                    p.vista = v;
+                    self.espacio_trabajo.datos.vista = v;
+                    self.desplazar_a_foco = true;
+                    self.disposicion = None;
+                    self.marcar_sesion();
+                }
             }
             Accion::Ordenar(o) => {
-                if self.config.orden == o {
-                    self.config.orden_descendente = !self.config.orden_descendente;
-                } else {
-                    self.config.orden = o;
-                    self.config.orden_descendente = matches!(o, Orden::Fecha | Orden::Tamano);
-                }
-                self.config_cambio();
-                self.cargar(ctx, false);
+                let av = *self.av();
+                self.cambiar_av(|a| {
+                    if av.orden == o {
+                        a.orden_descendente = !a.orden_descendente;
+                    } else {
+                        a.orden = o;
+                        a.orden_descendente = matches!(o, Orden::Fecha | Orden::Tamano);
+                    }
+                });
             }
-            Accion::OrdenDescendente(d) => {
-                self.config.orden_descendente = d;
-                self.config_cambio();
-                self.cargar(ctx, false);
-            }
-            Accion::CarpetasPrimero(c) => {
-                self.config.carpetas_primero = c;
-                self.config_cambio();
-                self.cargar(ctx, false);
-            }
+            Accion::OrdenDescendente(d) => self.cambiar_av(|a| a.orden_descendente = d),
+            Accion::CarpetasPrimero(c) => self.cambiar_av(|a| a.carpetas_primero = c),
             Accion::Zoom(delta) => {
-                self.config.tamano_iconos = (self.config.tamano_iconos + delta).clamp(40.0, 160.0);
+                self.cambiar_av(|a| a.tamano_iconos = (a.tamano_iconos + delta).clamp(40.0, 160.0));
                 self.desplazar_a_foco = true;
-                self.config_cambio();
             }
+            Accion::FijarTamano(t) => {
+                self.cambiar_av(|a| a.tamano_iconos = t.clamp(40.0, 160.0));
+                self.desplazar_a_foco = true;
+            }
+            Accion::Orbita(c) => self.cambiar_orbita(c),
+            Accion::NuevaPestana => {
+                let u = self.ubicacion.clone();
+                self.abrir_pestana(ctx, u, true);
+            }
+            Accion::AbrirEnPestana(r) => self.abrir_pestana(ctx, Ubicacion::Ruta(r), false),
+            Accion::AbrirPapeleraEnPestana => self.abrir_pestana(ctx, Ubicacion::Papelera, false),
+            Accion::CerrarPestana(id) => {
+                if let Some(i) = self.indice_pestana(id) {
+                    self.cerrar_pestana(ctx, i);
+                }
+            }
+            Accion::ActivarPestana(id) => {
+                if let Some(i) = self.indice_pestana(id) {
+                    self.activar_pestana(ctx, i);
+                }
+            }
+            Accion::SiguientePestana => {
+                let n = self.pestanas.len();
+                self.activar_pestana(ctx, (self.activa + 1) % n);
+            }
+            Accion::AnteriorPestana => {
+                let n = self.pestanas.len();
+                self.activar_pestana(ctx, (self.activa + n - 1) % n);
+            }
+            Accion::MoverPestana { de, a } => self.mover_pestana(de, a),
+            Accion::DuplicarPestana(id) => {
+                if let Some(i) = self.indice_pestana(id) {
+                    let u = self.ubicacion_de(i).clone();
+                    let v = self.pestanas[i].vista;
+                    self.activar_pestana(ctx, i);
+                    self.abrir_pestana(ctx, u, true);
+                    if let Some(p) = self.pestanas.get_mut(self.activa) {
+                        p.vista = v;
+                    }
+                }
+            }
+            Accion::CerrarOtras(id) => {
+                if let Some(i) = self.indice_pestana(id) {
+                    self.activar_pestana(ctx, i);
+                    self.cerrar_pestanas(ctx, |j| j == i);
+                }
+            }
+            Accion::CerrarDerecha(id) => {
+                if let Some(i) = self.indice_pestana(id) {
+                    self.cerrar_pestanas(ctx, |j| j <= i);
+                }
+            }
+            Accion::ReabrirPestana => self.reabrir_pestana(ctx),
+            Accion::PestanaAEspacio { pestana, espacio } => self.pestana_a_espacio(ctx, pestana, &espacio),
+            Accion::MenuEspacios => self.abrir_menu_espacios = true,
+            Accion::CambiarEspacio(id) => self.cambiar_espacio(ctx, &id),
+            Accion::NuevoEspacio => {
+                self.refrescar_espacios();
+                self.dialogo = Some(Dialogo::Espacio(Box::new(self.form_espacio(true))));
+            }
+            Accion::ConfigurarEspacio => {
+                self.refrescar_espacios();
+                self.dialogo = Some(Dialogo::Espacio(Box::new(self.form_espacio(false))));
+            }
+            Accion::GuardarFormEspacio(f) => {
+                if f.id.is_none() {
+                    self.crear_espacio(ctx, *f);
+                } else {
+                    self.configurar_espacio(*f);
+                }
+            }
+            Accion::RenombrarEspacio(id) => {
+                let nombre = if id == self.espacio_trabajo.datos.id {
+                    self.espacio_trabajo.datos.nombre.clone()
+                } else {
+                    self.espacios.iter().find(|e| e.id == id).map(|e| e.nombre.clone()).unwrap_or_default()
+                };
+                self.dialogo = Some(Dialogo::RenombrarEspacio { id, nombre, iniciado: false });
+            }
+            Accion::PreguntarEliminarEspacio(id, nombre) => self.dialogo = Some(Dialogo::EliminarEspacio { id, nombre }),
+            Accion::EliminarEspacio(id) => self.eliminar_espacio(ctx, &id),
             Accion::AlternarLateral => {
                 self.config.mostrar_barra_lateral = !self.config.mostrar_barra_lateral;
                 self.config_cambio();
@@ -1278,6 +1462,9 @@ impl Solar {
     fn nueva_ventana(&mut self, dir: Option<&Path>) {
         let Ok(exe) = std::env::current_exe() else { return };
         let mut argv = vec![exe.as_os_str().to_owned()];
+        // La ventana nueva usa los ajustes de este espacio
+        argv.push("--espacio-de".into());
+        argv.push(self.espacio_trabajo.datos.id.clone().into());
         if let Some(d) = dir {
             argv.push(d.as_os_str().to_owned());
         }
@@ -1453,9 +1640,9 @@ impl Solar {
                         sonido::pedir(Sonido::Efecto);
                         self.avisar(
                             if v.rama.is_some() {
-                                format!("Solar tiene {} en GitHub. Instálalos en Ajustes → Actualizaciones.", v.nombre)
+                                format!("Solar tiene {} en GitHub. Instálalos en Ajustes › Actualizaciones.", v.nombre)
                             } else {
-                                format!("Hay una versión nueva de Solar: {}. Instálala en Ajustes → Actualizaciones.", v.etiqueta)
+                                format!("Hay una versión nueva de Solar: {}. Instálala en Ajustes › Actualizaciones.", v.etiqueta)
                             },
                             TipoAviso::Info,
                         );
@@ -1649,6 +1836,7 @@ impl Solar {
             }
         });
 
+        crate::perfil::medir("pestañas", || self.barra_pestanas(ui, &mut acciones));
         crate::perfil::medir("superior", || self.barra_superior(ui, &mut acciones));
         crate::perfil::medir("estado", || self.barra_estado(ui, &mut acciones));
         if self.config.barra_ubicacion == nucleo::Posicion::Abajo {
@@ -1673,7 +1861,13 @@ impl Solar {
             self.ejecutar(&ctx, a);
         }
         self.copiar_externo = false;
-        crate::perfil::medir("guardar", || self.guardar_si_hace_falta(&ctx));
+        if std::mem::take(&mut self.cargar_contexto_pendiente) {
+            self.cargar(&ctx, false);
+        }
+        crate::perfil::medir("guardar", || {
+            self.guardar_si_hace_falta(&ctx);
+            self.guardar_sesion_si_hace_falta(&ctx);
+        });
         sonido::despachar();
 
         if !self.tareas.is_empty() {
@@ -1774,6 +1968,9 @@ impl Solar {
         if self.config != self.config_guardada {
             let _ = self.config.guardar(&self.rutas.config);
         }
+        if !self.espacio_trabajo.temporal || !self.ops_espacios.is_empty() {
+            self.guardar_espacios();
+        }
         for t in &self.tareas {
             t.cancelar.store(true, Ordering::Relaxed);
         }
@@ -1818,6 +2015,10 @@ impl Seleccion {
     pub fn reemplazar(&mut self, nuevo: HashSet<PathBuf>) {
         self.version += 1;
         self.conjunto = nuevo;
+    }
+    pub fn tomar(&mut self) -> HashSet<PathBuf> {
+        self.version += 1;
+        std::mem::take(&mut self.conjunto)
     }
 }
 

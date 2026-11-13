@@ -80,6 +80,7 @@ impl Combinacion {
                 Key::Home => "Inicio".into(),
                 Key::Backspace => "Retroceso".into(),
                 Key::Space => "Espacio".into(),
+                Key::Tab => "Tab".into(),
                 otra => otra.name().into(),
             },
         );
@@ -126,6 +127,7 @@ pub struct Accion {
 const NAV: &str = "Navegación";
 const ARCH: &str = "Archivos";
 const VIS: &str = "Vista";
+const PES: &str = "Pestañas y espacios";
 const VEN: &str = "Ventana";
 
 pub const ACCIONES: &[Accion] = &[
@@ -151,17 +153,25 @@ pub const ACCIONES: &[Accion] = &[
     Accion { id: "agregar_lugar", nombre: "Añadir a Lugares", grupo: ARCH },
     Accion { id: "ocultos", nombre: "Mostrar archivos ocultos", grupo: VIS },
     Accion { id: "vista_cuadricula", nombre: "Vista de cuadrícula", grupo: VIS },
-    Accion { id: "vista_lista", nombre: "Vista de lista", grupo: VIS },
+    Accion { id: "vista_lista", nombre: "Vista de lista (detalles)", grupo: VIS },
+    Accion { id: "vista_mosaicos", nombre: "Vista de mosaicos", grupo: VIS },
+    Accion { id: "vista_orbita", nombre: "Vista Órbita", grupo: VIS },
     Accion { id: "acercar", nombre: "Íconos más grandes", grupo: VIS },
     Accion { id: "alejar", nombre: "Íconos más pequeños", grupo: VIS },
     Accion { id: "barra_lateral", nombre: "Mostrar u ocultar la barra lateral", grupo: VIS },
+    Accion { id: "nueva_pestana", nombre: "Pestaña nueva", grupo: PES },
+    Accion { id: "cerrar_pestana", nombre: "Cerrar pestaña", grupo: PES },
+    Accion { id: "siguiente_pestana", nombre: "Pestaña siguiente", grupo: PES },
+    Accion { id: "anterior_pestana", nombre: "Pestaña anterior", grupo: PES },
+    Accion { id: "reabrir_pestana", nombre: "Reabrir la última pestaña cerrada", grupo: PES },
+    Accion { id: "espacios", nombre: "Menú de espacios de trabajo", grupo: PES },
     Accion { id: "terminal", nombre: "Abrir terminal aquí", grupo: VEN },
     Accion { id: "ajustes", nombre: "Ajustes", grupo: VEN },
     Accion { id: "nueva_ventana", nombre: "Nueva ventana", grupo: VEN },
     Accion { id: "cerrar", nombre: "Cerrar Solar", grupo: VEN },
 ];
 
-pub const GRUPOS: [&str; 4] = [NAV, ARCH, VIS, VEN];
+pub const GRUPOS: [&str; 5] = [NAV, ARCH, VIS, PES, VEN];
 
 pub fn accion(id: &str) -> Option<&'static Accion> {
     ACCIONES.iter().find(|a| a.id == id)
@@ -181,7 +191,7 @@ impl Atajos {
     /// Convierte los atajos de config.lua. Devuelve avisos de los que no se entienden.
     pub fn de_config(atajos: &[(String, String)]) -> (Self, Vec<String>) {
         let mut avisos = Vec::new();
-        let lista = atajos
+        let mut lista: Vec<(String, Option<Combinacion>)> = atajos
             .iter()
             .map(|(id, teclas)| {
                 let c = Combinacion::parsear(teclas);
@@ -191,6 +201,28 @@ impl Atajos {
                 (id.clone(), c)
             })
             .collect();
+        // Al actualizar Solar, un atajo nuevo puede chocar con uno que tú ya
+        // habías cambiado (por ejemplo Ctrl+T para la terminal): gana el tuyo
+        // y el nuevo se queda sin atajo
+        let defecto = crate::nucleo::atajos_defecto();
+        let es_defecto = |id: &str, c: &Combinacion| defecto.iter().any(|(d, t)| d == id && Combinacion::parsear(t).as_ref() == Some(c));
+        for i in 0..lista.len() {
+            let (id, Some(c)) = lista[i].clone() else { continue };
+            if !es_defecto(&id, &c) {
+                continue;
+            }
+            let tuyo = lista.iter().find(|(otro, oc)| *otro != id && oc.as_ref() == Some(&c) && !es_defecto(otro, &c));
+            if let Some((otro, _)) = tuyo {
+                let nombre = |x: &str| accion(x).map(|a| a.nombre.to_string()).unwrap_or_else(|| x.to_string());
+                avisos.push(format!(
+                    "«{}» se quedó sin atajo porque {} ya es «{}». Puedes darle otro en Ajustes › Atajos.",
+                    nombre(&id),
+                    c.texto(),
+                    nombre(otro)
+                ));
+                lista[i].1 = None;
+            }
+        }
         (Self { lista }, avisos)
     }
 
@@ -271,5 +303,27 @@ mod pruebas {
             assert!(Combinacion::parsear(t).is_some(), "{} -> {t}", a.id);
         }
         assert_eq!(defecto.len(), ACCIONES.len());
+        // Ninguna combinación repetida entre los de fábrica
+        let (a, avisos) = Atajos::de_config(&defecto);
+        assert!(avisos.is_empty(), "{avisos:?}");
+        for (id, c) in &a.lista {
+            assert!(a.conflicto(id, c.as_ref().unwrap()).is_none(), "{id}");
+        }
+    }
+
+    #[test]
+    fn un_atajo_nuevo_no_le_gana_al_tuyo() {
+        // Como un config.lua de antes de las pestañas con la terminal en Ctrl+T
+        let mut config = crate::nucleo::atajos_defecto();
+        for (id, t) in config.iter_mut() {
+            if id == "terminal" {
+                *t = "Ctrl+T".into();
+            }
+        }
+        let (a, avisos) = Atajos::de_config(&config);
+        assert_eq!(a.texto("terminal"), Combinacion::parsear("Ctrl+T").unwrap().mostrar());
+        assert!(a.de("nueva_pestana").is_none());
+        assert_eq!(avisos.len(), 1);
+        assert!(avisos[0].contains("Pestaña nueva") && avisos[0].contains("Abrir terminal aquí"), "{}", avisos[0]);
     }
 }

@@ -34,6 +34,10 @@ pub enum Dialogo {
     Mensaje { titulo: String, texto: String, error: bool },
     AvisosConfig(Vec<String>),
     AcercaDe,
+    /// Nuevo espacio de trabajo o configurar el actual
+    Espacio(Box<crate::espacios::FormEspacio>),
+    RenombrarEspacio { id: String, nombre: String, iniciado: bool },
+    EliminarEspacio { id: String, nombre: String },
 }
 
 // ======================================================================
@@ -235,6 +239,7 @@ impl Solar {
             Dialogo::Propiedades(_) => 460.0,
             Dialogo::AcercaDe => 420.0,
             Dialogo::AvisosConfig(_) => 520.0,
+            Dialogo::Espacio(_) => 600.0,
             _ => 440.0,
         };
         let marco = Frame::new()
@@ -396,7 +401,7 @@ impl Solar {
                     }
                     Dialogo::AvisosConfig(avisos) => {
                         ui_util::titulo(ui, &p, "Revisé tu configuración");
-                        ui.label("Encontré algunas cosas que no entendí; las ignoré y usé los valores por defecto:");
+                        ui.label("Encontré algunas cosas que no entendí (las ignoré y usé los valores por defecto) o que chocaban entre sí:");
                         ui.add_space(6.0);
                         ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                             for a in avisos.iter() {
@@ -418,6 +423,54 @@ impl Solar {
                         });
                     }
                     Dialogo::AcercaDe => cerrar = self.dialogo_acerca(ui, &p),
+                    Dialogo::Espacio(f) => cerrar = self.dialogo_espacio(ui, &p, f, acciones),
+                    Dialogo::RenombrarEspacio { id, nombre, iniciado } => {
+                        ui_util::titulo(ui, &p, "Renombrar espacio");
+                        // (No es un archivo: puede llevar «/» o empezar con punto)
+                        let resp = ui.add(egui::TextEdit::singleline(nombre).desired_width(f32::INFINITY).font(FontId::proportional(15.0)));
+                        if !*iniciado {
+                            resp.request_focus();
+                            if let Some(mut estado) = egui::TextEdit::load_state(ui.ctx(), resp.id) {
+                                let fin = egui::text::CCursor::new(nombre.chars().count());
+                                estado.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), fin)));
+                                estado.store(ui.ctx(), resp.id);
+                            }
+                            *iniciado = true;
+                        }
+                        let limpio = nombre.trim().to_string();
+                        let repetido = self.espacios.iter().any(|e| e.id != *id && e.nombre.trim().eq_ignore_ascii_case(&limpio));
+                        if repetido {
+                            ui.label(RichText::new("Ya hay un espacio con ese nombre.").small().color(ui.visuals().warn_fg_color));
+                        }
+                        ui.add_space(14.0);
+                        let mut ok = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        fila_botones(ui, |ui| {
+                            ok |= ui.add_enabled_ui(!limpio.is_empty() && !repetido, |ui| boton_principal(ui, &p, "Renombrar")).inner.clicked();
+                            if boton(ui, "Cancelar").clicked() {
+                                cerrar = true;
+                            }
+                        });
+                        if ok && !limpio.is_empty() && !repetido {
+                            self.renombrar_espacio(id, &limpio);
+                            cerrar = true;
+                        }
+                    }
+                    Dialogo::EliminarEspacio { id, nombre } => {
+                        ui_util::titulo(ui, &p, "¿Eliminar el espacio?");
+                        ui.label(format!(
+                            "Se olvidarán las pestañas y los ajustes de «{nombre}». Tus carpetas y archivos no se tocan."
+                        ));
+                        ui.add_space(14.0);
+                        fila_botones(ui, |ui| {
+                            if boton_peligro(ui, &p, "Eliminar espacio").clicked() {
+                                acciones.push(Accion::EliminarEspacio(id.clone()));
+                                cerrar = true;
+                            }
+                            if boton(ui, "Cancelar").clicked() {
+                                cerrar = true;
+                            }
+                        });
+                    }
                 }
             });
         if respuesta.should_close() {

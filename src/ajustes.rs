@@ -5,7 +5,7 @@
 use crate::app::{Accion, Solar, TipoAviso, Ubicacion};
 use crate::atajos::{self, Combinacion};
 use crate::iconos::{self, Logotipo};
-use crate::nucleo::{self, ColorTema, Lado, Lugar, Orden, Posicion, Tema, Vista};
+use crate::nucleo::{self, ColorTema, Lado, Lugar, Orden, OrdenOrbita, Posicion, Tema, Vista};
 use crate::tema::{self, Paleta, con_alfa};
 use crate::sonido::{self, Sonido};
 use crate::ui_util::{self, fila, interruptor};
@@ -249,6 +249,19 @@ impl Solar {
         if estado.editor.is_some() {
             self.editor_tema(ui, p, estado);
             return;
+        }
+        // Si el espacio de trabajo tiene su propio tema, aquí se cambia el general
+        let propio = self.espacio_trabajo.datos.tema.clone();
+        if !propio.is_empty() {
+            let nombre_tema = self.temas.iter().find(|t| t.id == propio).map(|t| t.nombre.clone()).unwrap_or(propio.clone());
+            let espacio = self.espacio_trabajo.datos.nombre.clone();
+            aviso_espacio(ui, p, &format!("El espacio «{espacio}» usa su propio tema ({nombre_tema}). Lo que elijas aquí es el tema general."), |ui| {
+                if ui.button("Usar el general aquí").clicked() {
+                    self.espacio_trabajo.datos.tema.clear();
+                    self.apariencia_aplicada = None;
+                    self.marcar_sesion();
+                }
+            });
         }
         ui_util::encabezado(ui, p, "Tema de colores");
         let temas: Vec<Tema> = self.temas.iter().filter(|t| t.id != ID_EDITOR).cloned().collect();
@@ -537,18 +550,41 @@ impl Solar {
         });
         ui.add_space(8.0);
         ui_util::encabezado(ui, p, "Vista");
-        fila(ui, p, "Ver archivos como", "", |ui| {
-            if ui.selectable_label(self.config.vista == Vista::Lista, format!("{}  Lista", ph::LIST)).clicked() {
-                self.config.vista = Vista::Lista;
-                cambio = true;
-            }
-            if ui.selectable_label(self.config.vista == Vista::Cuadricula, format!("{}  Cuadrícula", ph::SQUARES_FOUR)).clicked() {
-                self.config.vista = Vista::Cuadricula;
-                cambio = true;
-            }
+        fila(ui, p, "Ver esta pestaña como", "Cada pestaña recuerda su vista. También con Ctrl+1 a Ctrl+4.", |ui| {
+            let actual = self.vista();
+            let (glifo, nombre, _) = crate::vista::info_vista(actual);
+            egui::ComboBox::from_id_salt("vista_pestana").selected_text(format!("{glifo}  {nombre}")).width(190.0).show_ui(ui, |ui| {
+                for v in Vista::TODAS {
+                    let (g, n, _) = crate::vista::info_vista(v);
+                    if ui.selectable_label(actual == v, format!("{g}  {n}")).clicked() && actual != v {
+                        if let Some(pe) = self.pestanas.get_mut(self.activa) {
+                            pe.vista = v;
+                        }
+                        self.espacio_trabajo.datos.vista = v;
+                        self.disposicion = None;
+                        self.desplazar_a_foco = true;
+                        self.marcar_sesion();
+                    }
+                }
+            });
+        });
+        fila(ui, p, "Vista de los espacios nuevos", "", |ui| {
+            let (glifo, nombre, _) = crate::vista::info_vista(self.config.vista);
+            egui::ComboBox::from_id_salt("vista_general").selected_text(format!("{glifo}  {nombre}")).width(190.0).show_ui(ui, |ui| {
+                for v in Vista::TODAS {
+                    let (g, n, _) = crate::vista::info_vista(v);
+                    if ui.selectable_label(self.config.vista == v, format!("{g}  {n}")).clicked() {
+                        self.config.vista = v;
+                        cambio = true;
+                    }
+                }
+            });
         });
         fila(ui, p, "Tamaño de los íconos", "También con Ctrl + rueda del mouse.", |ui| {
-            cambio |= ui.add(egui::Slider::new(&mut self.config.tamano_iconos, 40.0..=160.0).step_by(4.0).suffix(" px").fixed_decimals(0)).changed();
+            let mut tam = self.av().tamano_iconos;
+            if ui.add(egui::Slider::new(&mut tam, 40.0..=160.0).step_by(4.0).suffix(" px").fixed_decimals(0)).changed() {
+                self.cambiar_av(|a| a.tamano_iconos = tam);
+            }
         });
         if cambio {
             self.config_cambio();
@@ -811,34 +847,69 @@ impl Solar {
     fn ajustes_archivos(&mut self, ui: &mut Ui, p: &Paleta, estado: &mut EstadoAjustes) {
         ui_util::titulo(ui, p, "Archivos");
         let mut cambio = false;
-        let mut recargar = false;
+        let antes = *self.av();
+        if self.espacio_trabajo.datos.propios {
+            let espacio = self.espacio_trabajo.datos.nombre.clone();
+            aviso_espacio(
+                ui,
+                p,
+                &format!("El espacio «{espacio}» tiene sus propios ajustes de archivos y de la órbita. Aquí cambias los generales (los de los demás espacios)."),
+                |ui| {
+                    if ui.button("Configurar el espacio…").clicked() {
+                        let f = self.form_espacio(false);
+                        self.dialogo = Some(crate::dialogos::Dialogo::Espacio(Box::new(f)));
+                    }
+                },
+            );
+        }
+        let a = &mut self.config.archivos;
         fila(ui, p, "Mostrar archivos ocultos", &format!("Los que empiezan con punto. También con {}.", self.atajos.texto("ocultos")), |ui| {
-            if interruptor(ui, p, &mut self.config.mostrar_ocultos).changed() {
-                cambio = true;
-                self.visibles_sucios = true;
-            }
+            cambio |= interruptor(ui, p, &mut a.mostrar_ocultos).changed();
         });
         fila(ui, p, "Carpetas primero", "", |ui| {
-            if interruptor(ui, p, &mut self.config.carpetas_primero).changed() {
-                cambio = true;
-                recargar = true;
-            }
+            cambio |= interruptor(ui, p, &mut a.carpetas_primero).changed();
         });
         fila(ui, p, "Ordenar por", "", |ui| {
-            ui.checkbox(&mut self.config.orden_descendente, "Al revés").changed().then(|| {
-                cambio = true;
-                recargar = true;
-            });
-            egui::ComboBox::from_id_salt("orden").selected_text(self.config.orden.nombre()).show_ui(ui, |ui| {
+            cambio |= ui.checkbox(&mut a.orden_descendente, "Al revés").changed();
+            egui::ComboBox::from_id_salt("orden").selected_text(a.orden.nombre()).show_ui(ui, |ui| {
                 for o in Orden::TODOS {
-                    if ui.selectable_label(self.config.orden == o, o.nombre()).clicked() {
-                        self.config.orden = o;
+                    if ui.selectable_label(a.orden == o, o.nombre()).clicked() {
+                        a.orden = o;
                         cambio = true;
-                        recargar = true;
                     }
                 }
             });
         });
+        ui.add_space(6.0);
+        ui_util::encabezado(ui, p, "Vista Órbita");
+        fila(ui, p, "Que giren alrededor de la carpeta", "Se detienen solos al pasar el mouse por encima.", |ui| {
+            cambio |= interruptor(ui, p, &mut a.orbita_girar).changed();
+        });
+        fila(ui, p, "Velocidad del giro", "", |ui| {
+            cambio |= ui.add(egui::Slider::new(&mut a.orbita_velocidad, 0.1..=4.0).logarithmic(true).max_decimals(1).suffix("×")).changed();
+        });
+        fila(ui, p, "Acomodo", "Qué va más cerca del centro.", |ui| {
+            egui::ComboBox::from_id_salt("orbita_orden").selected_text(a.orbita_orden.nombre()).width(210.0).show_ui(ui, |ui| {
+                for o in OrdenOrbita::TODOS {
+                    if ui.selectable_label(a.orbita_orden == o, o.nombre()).clicked() {
+                        a.orbita_orden = o;
+                        cambio = true;
+                    }
+                }
+            });
+        });
+        fila(ui, p, "Órbitas con electricidad", "Rayos que recorren las órbitas.", |ui| {
+            cambio |= interruptor(ui, p, &mut a.orbita_electricidad).changed();
+        });
+        let ahora = *self.av();
+        self.despues_de_cambiar_av(&antes, &ahora);
+        ui.add_space(6.0);
+        ui_util::encabezado(ui, p, "Al abrir Solar");
+        fila(ui, p, "Volver a las pestañas de la última vez", "Cada espacio de trabajo recuerda las suyas.", |ui| {
+            cambio |= interruptor(ui, p, &mut self.config.restaurar_sesion).changed();
+        });
+        ui.add_space(6.0);
+        ui_util::encabezado(ui, p, "Abrir");
         fila(ui, p, "Abrir con un solo clic", "Como en KDE. Si está apagado, se abre con doble clic.", |ui| {
             cambio |= interruptor(ui, p, &mut self.config.un_clic).changed();
         });
@@ -864,10 +935,6 @@ impl Solar {
         });
         if cambio {
             self.config_cambio();
-        }
-        if recargar {
-            self.generacion += 1;
-            self.cargar(ui.ctx(), false);
         }
     }
 
@@ -1090,4 +1157,23 @@ impl Solar {
             ui.label(RichText::new(ejemplo).monospace().color(p.texto));
         });
     }
+}
+
+/// Una nota arriba de una página de Ajustes cuando el espacio de trabajo
+/// tiene lo suyo.
+fn aviso_espacio(ui: &mut Ui, p: &Paleta, texto: &str, botones: impl FnOnce(&mut Ui)) {
+    egui::Frame::new()
+        .fill(con_alfa(p.acento, 0.10))
+        .stroke(egui::Stroke::new(1.0, con_alfa(p.acento, 0.45)))
+        .corner_radius(egui::CornerRadius::same(10))
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(ph::PLANET).color(p.acento).size(16.0));
+                ui.label(RichText::new(texto).color(p.texto));
+            });
+            ui.add_space(4.0);
+            ui.horizontal(botones);
+        });
+    ui.add_space(10.0);
 }

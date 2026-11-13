@@ -4,7 +4,7 @@
 
 use crate::app::{Accion, Arrastre, Solar, Ubicacion};
 use crate::iconos;
-use crate::nucleo::{self, Dispositivo, Posicion, Vista};
+use crate::nucleo::{self, Dispositivo, Posicion};
 use crate::tema::{Paleta, con_alfa};
 use crate::ui_util::{self, boton_icono, boton_icono_estado};
 use crate::{formato, tareas};
@@ -139,12 +139,16 @@ impl Solar {
                             if resp.clicked() && !ultimo {
                                 acciones.push(Accion::Navegar(Ubicacion::Ruta(r.clone())));
                             }
-                            if let Some(a) = resp.dnd_release_payload::<Arrastre>() {
+                            if let Some(a) = crate::ui_util::soltado::<Arrastre>(&resp) {
                                 let copiar = ui.input(|i| i.modifiers.ctrl);
                                 acciones.push(Accion::Soltar { destino: r.clone(), rutas: a.0.clone(), copiar });
                             }
                             let r = r.clone();
                             resp.on_hover_cursor(CursorIcon::PointingHand).context_menu(|ui| {
+                                if ui.button(format!("{}   Abrir en pestaña nueva", ph::BROWSERS)).clicked() {
+                                    acciones.push(Accion::AbrirEnPestana(r.clone()));
+                                    ui.close();
+                                }
                                 if ui.button(format!("{}   Abrir en ventana nueva", ph::APP_WINDOW)).clicked() {
                                     acciones.push(Accion::AbrirEnVentana(r.clone()));
                                     ui.close();
@@ -220,7 +224,7 @@ impl Solar {
                 );
 
                 let textos: std::collections::HashMap<&str, String> =
-                    ["atras", "adelante", "subir", "ajustes", "vista_cuadricula", "vista_lista", "ocultos", "buscar", "barra_lateral"]
+                    ["atras", "adelante", "subir", "ajustes", "ocultos", "buscar", "barra_lateral"]
                         .into_iter()
                         .map(|id| (id, self.atajos.texto(id)))
                         .collect();
@@ -242,8 +246,7 @@ impl Solar {
 
                     // Ancho de lo de la derecha para darle el resto a la ubicación
                     let ancho_busqueda = if self.busqueda.is_some() { 200.0 } else { 34.0 };
-                    let ancho_ventana = if integrada { 3.0 * 34.0 + 10.0 } else { 0.0 };
-                    let derecha = ancho_busqueda + 4.0 * 34.0 + ancho_ventana + 16.0;
+                    let derecha = ancho_busqueda + 4.0 * 34.0 + 30.0 + 16.0;
                     let ancho_medio = (ui.available_width() - derecha).max(120.0);
 
                     if self.config.barra_ubicacion == Posicion::Arriba {
@@ -256,38 +259,24 @@ impl Solar {
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
-                        if integrada {
-                            let cerrar = boton_icono(ui, &p, ph::X, "Cerrar", true);
-                            if cerrar.hovered() {
-                                ui.painter().rect_filled(cerrar.rect, CornerRadius::same(8), con_alfa(p.peligro, 0.85));
-                                ui.painter().text(cerrar.rect.center(), Align2::CENTER_CENTER, ph::X, FontId::proportional(17.0), Color32::WHITE);
-                            }
-                            if cerrar.clicked() {
-                                acciones.push(Accion::Cerrar);
-                            }
-                            let (glifo, ayuda) = if self.maximizada { (ph::CORNERS_IN, "Restaurar") } else { (ph::CORNERS_OUT, "Maximizar") };
-                            if boton_icono(ui, &p, glifo, ayuda, true).clicked() {
-                                ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!self.maximizada));
-                            }
-                            if boton_icono(ui, &p, ph::MINUS, "Minimizar", true).clicked() {
-                                ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
-                            }
-                            ui.add_space(10.0);
-                        }
                         let ajustes_abiertos = self.ajustes.is_some();
                         if boton_icono_estado(ui, &p, ph::GEAR_SIX, &format!("Ajustes ({})", a("ajustes")), true, ajustes_abiertos).clicked() {
                             acciones.push(Accion::Ajustes);
                         }
-                        let lista = self.config.vista == Vista::Lista;
-                        let (glifo, ayuda, otra) = if lista {
-                            (ph::SQUARES_FOUR, format!("Ver como cuadrícula ({})", a("vista_cuadricula")), Vista::Cuadricula)
-                        } else {
-                            (ph::LIST, format!("Ver como lista ({})", a("vista_lista")), Vista::Lista)
-                        };
-                        if boton_icono(ui, &p, glifo, &ayuda, true).clicked() {
-                            acciones.push(Accion::CambiarVista(otra));
+                        // El menú Vista, como el de Windows
+                        let (glifo, nombre, _) = crate::vista::info_vista(self.vista());
+                        let boton = ui
+                            .add(
+                                egui::Button::new(RichText::new(format!("{glifo} {}", ph::CARET_DOWN)).size(16.0).color(p.texto))
+                                    .frame(false)
+                                    .min_size(vec2(46.0, 30.0)),
+                            )
+                            .on_hover_text(format!("Vista: {nombre}"));
+                        if boton.hovered() {
+                            ui.painter().rect_filled(boton.rect, CornerRadius::same(8), p.hover);
                         }
-                        let ocultos = self.config.mostrar_ocultos;
+                        egui::Popup::menu(&boton).show(|ui| self.menu_vistas(ui, acciones));
+                        let ocultos = self.av().mostrar_ocultos;
                         if boton_icono_estado(ui, &p, if ocultos { ph::EYE } else { ph::EYE_SLASH }, &format!("Archivos ocultos ({})", a("ocultos")), true, ocultos).clicked() {
                             acciones.push(Accion::AlternarOcultos);
                         }
@@ -338,7 +327,7 @@ impl Solar {
             }
         }
         if n_sel == 0 {
-            let ocultos = if self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera {
+            let ocultos = if self.av().mostrar_ocultos || self.ubicacion == Ubicacion::Papelera {
                 0
             } else {
                 self.entradas.iter().filter(|e| e.es_oculto).count()
@@ -385,7 +374,7 @@ impl Solar {
                 ui.horizontal_centered(|ui| {
                     // Recorrer miles de archivos en cada cuadro se nota: el texto
                     // se arma solo cuando cambia la selección o lo visible
-                    let mostrar_todo = self.config.mostrar_ocultos || self.ubicacion == Ubicacion::Papelera;
+                    let mostrar_todo = self.av().mostrar_ocultos || self.ubicacion == Ubicacion::Papelera;
                     let clave = (self.seleccion.version(), self.version_visibles, mostrar_todo);
                     let guardado = self.texto_estado.borrow().as_ref().filter(|(k, _)| *k == clave).map(|(_, t)| t.clone());
                     let texto = match guardado {
@@ -400,14 +389,13 @@ impl Solar {
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         // Tamaño de íconos
-                        let mut tam = self.config.tamano_iconos;
+                        let mut tam = self.av().tamano_iconos;
                         ui.label(RichText::new(ph::MAGNIFYING_GLASS_PLUS).size(14.0).color(p.texto_tenue));
                         ui.spacing_mut().slider_width = 110.0;
                         let r = ui.add(egui::Slider::new(&mut tam, 40.0..=160.0).show_value(false).step_by(4.0))
                             .on_hover_text("Tamaño de los íconos (Ctrl + rueda del mouse)");
                         if r.changed() {
-                            self.config.tamano_iconos = tam;
-                            self.config_cambio();
+                            self.cambiar_av(|a| a.tamano_iconos = tam);
                         }
                         ui.label(RichText::new(ph::MAGNIFYING_GLASS_MINUS).size(14.0).color(p.texto_tenue));
                         ui.add_space(12.0);
@@ -537,9 +525,9 @@ impl Solar {
                             acciones.push(Accion::Navegar(Ubicacion::Ruta(ruta.clone())));
                         }
                         if resp.middle_clicked() {
-                            acciones.push(Accion::AbrirEnVentana(ruta.clone()));
+                            acciones.push(Accion::AbrirEnPestana(ruta.clone()));
                         }
-                        if let Some(a) = resp.dnd_release_payload::<Arrastre>() {
+                        if let Some(a) = crate::ui_util::soltado::<Arrastre>(&resp) {
                             let copiar = ui.input(|i| i.modifiers.ctrl);
                             acciones.push(Accion::Soltar { destino: ruta.clone(), rutas: a.0.clone(), copiar });
                         }
@@ -547,6 +535,10 @@ impl Solar {
                             ui.set_min_width(220.0);
                             if ui.button(format!("{}   Abrir", ph::FOLDER_OPEN)).clicked() {
                                 acciones.push(Accion::Navegar(Ubicacion::Ruta(ruta.clone())));
+                                ui.close();
+                            }
+                            if ui.button(format!("{}   Abrir en pestaña nueva", ph::BROWSERS)).clicked() {
+                                acciones.push(Accion::AbrirEnPestana(ruta.clone()));
                                 ui.close();
                             }
                             if ui.button(format!("{}   Abrir en ventana nueva", ph::APP_WINDOW)).clicked() {
@@ -577,7 +569,10 @@ impl Solar {
                     if resp.clicked() {
                         acciones.push(Accion::Navegar(Ubicacion::Papelera));
                     }
-                    if let Some(a) = resp.dnd_release_payload::<Arrastre>() {
+                    if resp.middle_clicked() {
+                        acciones.push(Accion::AbrirPapeleraEnPestana);
+                    }
+                    if let Some(a) = crate::ui_util::soltado::<Arrastre>(&resp) {
                         acciones.push(Accion::Papelera(a.0.clone()));
                     }
                     resp.context_menu(|ui| {
@@ -660,7 +655,7 @@ impl Solar {
                 None => acciones.push(Accion::Montar { dispositivo: d.dispositivo.clone(), abrir: true }),
             }
         }
-        if let (Some(m), Some(a)) = (&d.punto_montaje, resp.dnd_release_payload::<Arrastre>()) {
+        if let (Some(m), Some(a)) = (&d.punto_montaje, crate::ui_util::soltado::<Arrastre>(&resp)) {
             acciones.push(Accion::Soltar { destino: m.clone(), rutas: a.0.clone(), copiar: true });
         }
         let d2 = d.clone();
