@@ -1,6 +1,94 @@
 # Registro de cambios
 
-## v0.1.1-alpha — 2026-11-09
+## v0.1.2-alpha «Órbita» — 2026-11-12
+
+Vistas, Órbita, pestañas y espacios de trabajo.
+
+### Una base para todas las vistas
+- Las vistas comparten una sola interfaz: cada una solo dice dónde va cada
+  archivo, cómo se dibuja y a dónde llevan las flechas. La selección, la
+  banda, arrastrar y soltar, el clic derecho, el teclado, las animaciones y
+  la navegación son los mismos para todas.
+- **4 vistas, como en Windows**: íconos (muy grandes, grandes, medianos y
+  pequeños), lista (detalles), **mosaicos** (nueva: el ícono con el tipo y el
+  tamaño al lado) y **Órbita** (nueva). Atajos Ctrl+1 a Ctrl+4.
+- Menú **Vista** en la barra, como el de Windows: tamaños de íconos, vistas
+  y mostrar ocultos.
+- Cambiar de vista no pierde nada: la selección, el archivo con el foco (la
+  vista nueva lo busca) y la carpeta siguen igual. Cada pestaña recuerda su
+  vista.
+
+### Órbita
+- La carpeta abierta va en el **centro**, como el sol, y lo que tiene
+  adentro le da vueltas en anillos. Todo se ve con su ícono de siempre: la
+  carpeta del centro y las que giran con su color y logotipo (la carpeta
+  personal con su casita), y los archivos con el de su tipo. Los más
+  pesados se ven un poco más grandes.
+- **Giran** como planetas de verdad (los de afuera más despacio), con
+  velocidad ajustable, y se detienen solos al pasar el mouse, al arrastrar o
+  con un menú abierto.
+- **Acomodo** del centro hacia afuera: más grandes, más chicos, por nombre, por
+  tipo, más recientes o al azar (con botón para revolver). Al cambiarlo, todo
+  se desliza a su lugar nuevo.
+- **Electricidad**: cada órbita es un rayo continuo, siempre encendido, que
+  tiembla suave sin parpadear. Se apaga en la barrita de la órbita o en
+  *Ajustes → Archivos*, y se adelgaza si los anillos quedan muy juntos.
+- La rueda acerca hacia el puntero, el botón de la rueda mueve la vista y la
+  mira la centra. ← y → recorren la órbita; ↑ y ↓ saltan de anillo. Doble
+  clic en la carpeta del centro: subir.
+- Al abrir una carpeta, lo de adentro sale disparado del centro.
+- Todo lo demás funciona igual que en las otras vistas: banda, soltar
+  archivos en una carpeta que gira, clic derecho, renombrar…
+- Se dibuja a unos 30 cuadros por segundo (20 con más de 1 500 archivos) y
+  solo mientras algo se mueve.
+
+### Pestañas
+- Barra de pestañas como la de Windows 11, con los botones de la ventana a
+  la derecha.
+- Ctrl+T nueva, Ctrl+W cerrar, Ctrl+Tab / Ctrl+Shift+Tab cambiar y
+  Ctrl+Shift+T reabrir la cerrada. Clic con la rueda en una carpeta: la abre
+  en otra pestaña; en una pestaña: la cierra.
+- Se reordenan arrastrándolas. Archivos arrastrados sobre una pestaña: al
+  soltarlos se mueven ahí; si esperas un momento, la pestaña se abre.
+- Clic derecho: duplicar, abrir en ventana nueva, cerrar las demás o las de
+  la derecha, reabrir y mandar a otro espacio de trabajo.
+- Cada pestaña tiene su historial (atrás/adelante), su selección, su
+  búsqueda y su vista. Las que no se ven guardan su lista de archivos (si la
+  carpeta no es enorme) para volver al instante, y se refrescan por detrás.
+
+### Espacios de trabajo
+- Crea, renombra, elimina (tus carpetas no se tocan) y cambia de espacio
+  con el botón a la izquierda de las pestañas o Ctrl+Shift+E.
+- Cada espacio guarda sus pestañas y la vista de cada una, su color y
+  logotipo y, si quieres, **su propio tema** y **sus propios ajustes** de
+  archivos y de la órbita. Al cambiar de espacio, el tema cambia con su
+  transición.
+- **Restaurar sesión**: al abrir Solar vuelves al último espacio con sus
+  pestañas (*Ajustes → Archivos*, se puede apagar).
+- Se guardan en `~/.config/solar/espacios.lua`.
+- Un espacio solo se abre en una ventana a la vez. Otra ventana usa un
+  espacio **temporal** (borde punteado) que no se guarda, salvo que elijas
+  *Guardar como espacio…*. Al guardar, cada ventana vuelve a leer el archivo
+  y solo cambia lo suyo, así no se pisan.
+
+### Otros cambios
+- Soltar archivos en el fondo de la vista (no en una carpeta) los mueve a la
+  carpeta abierta, y la vista se marca mientras pasan por encima. Antes solo
+  pasaba con archivos que venían de otro programa.
+- Si un atajo tuyo choca con uno nuevo (por ejemplo, tenías Ctrl+T para la
+  terminal), gana el tuyo, el nuevo se queda sin atajo y Solar te avisa una
+  vez.
+- `config.lua` acepta `vista = "mosaicos"` y `"orbita"`, `orbita_girar`,
+  `orbita_velocidad`, `orbita_orden`, `orbita_electricidad` y
+  `restaurar_sesion`. Los `config.lua` de antes siguen sirviendo tal cual.
+
+### Para desarrolladores
+- `src/vista.rs` es el motor común y cada vista vive en `src/vista/`
+  (implementa el trait `Disposicion`). Nuevos: `src/pestanas.rs`,
+  `src/espacios.rs` y `nucleo/src/espacios.c`.
+- 251 pruebas del núcleo (antes 226) y 21 de Rust (antes 16).
+
+## v0.1.1-alpha «Viento solar» — 2026-11-09
 
 Versión de optimización: mismo Solar, gastando menos (y, de paso, arrastrar
 entre ventanas). Medido con una carpeta de 20 300 archivos (`SOLAR_PERFIL=1`
@@ -74,7 +162,7 @@ muestra estos tiempos).
   las revisiones de discos.
 - 226 pruebas del núcleo (antes 218) y 16 de Rust (antes 14).
 
-## v0.1.0-alpha — 2026-11-08
+## v0.1.0-alpha «Amanecer» — 2026-11-08
 
 Primera versión de Solar.
 
