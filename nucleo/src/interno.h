@@ -120,4 +120,30 @@ void lua_seguro_cerrar(struct lua_State *L);
 /* "#RRGGBB", "#RGB" o número 0xRRGGBB. Devuelve 1 si es un color válido. */
 int lua_leer_color(struct lua_State *L, int indice, uint32_t *color);
 
+/* Lectura de tablas de Lua con avisos (config.c, también para espacios.c) */
+typedef struct {
+    struct lua_State *L;
+    int tabla;              /* índice de la tabla en la pila */
+    char *avisos;
+    size_t tam;
+} Lector;
+
+typedef struct {
+    const char *nombre;
+    int valor;
+} Opcion;
+
+void lector_bool(Lector *l, const char *clave, int32_t *destino);
+void lector_numero(Lector *l, const char *clave, double *destino, double min, double max);
+void lector_entero(Lector *l, const char *clave, int32_t *destino, int min, int max);
+void lector_texto(Lector *l, const char *clave, char **destino);
+void lector_opcion(Lector *l, const char *clave, int32_t *destino, const Opcion *opciones, size_t n);
+void leer_ajustes_vista(Lector *l, SolarAjustesVista *a);
+extern const Opcion OPCIONES_VISTA[];
+extern const size_t N_OPCIONES_VISTA;
+extern const char *const NOMBRES_VISTA[4];
+const char *nombre_orden(int orden);
+const char *nombre_orden_orbita(int orden);
+const char *bool_lua(int v);
+
 #endif /* SOLAR_INTERNO_H */
