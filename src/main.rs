@@ -18,6 +18,7 @@ mod atajos;
 mod barras;
 mod dialogos;
 mod escritorio;
+mod espacios;
 mod ffi;
 mod formato;
 mod fuentes;
@@ -25,6 +26,7 @@ mod iconos;
 mod iconos_programas;
 mod memoria;
 mod nucleo;
+mod pestanas;
 mod perfil;
 mod sonido;
 mod tareas;
@@ -48,6 +50,7 @@ Opciones:
 Configuración:
   ~/.config/solar/config.lua      Ajustes (Solar la reescribe al cambiar algo)
   ~/.config/solar/temas/*.lua     Tus temas de colores
+  ~/.config/solar/espacios.lua    Espacios de trabajo y sus pestañas
   ~/.local/share/solar/           Colores y logotipos de tus carpetas
   ~/.cache/solar/                 Descargas de actualizaciones (se puede borrar)
 
@@ -56,8 +59,14 @@ Solar por ahora es exclusivo de Linux.
 
 fn main() -> eframe::Result {
     let mut abrir: Option<PathBuf> = None;
-    for arg in std::env::args_os().skip(1) {
+    let mut desde_espacio: Option<String> = None;
+    let mut args = std::env::args_os().skip(1);
+    while let Some(arg) = args.next() {
         match arg.to_str() {
+            // (lo usa Solar al abrir otra ventana: que use los ajustes de este espacio)
+            Some("--espacio-de") => {
+                desde_espacio = args.next().and_then(|a| a.into_string().ok());
+            }
             Some("-h" | "--help") => {
                 print!("{AYUDA}");
                 return Ok(());
@@ -69,6 +78,7 @@ fn main() -> eframe::Result {
             Some("--config") => {
                 println!("config: {}", nucleo::dir_config().join("config.lua").display());
                 println!("temas:  {}", nucleo::dir_config().join("temas").display());
+                println!("espacios: {}", nucleo::dir_config().join("espacios.lua").display());
                 println!("datos:  {}", nucleo::dir_datos().display());
                 println!("caché:  {}", actualizar::dir_cache().display());
                 return Ok(());
@@ -140,12 +150,13 @@ fn main() -> eframe::Result {
     }
     let opciones = eframe::NativeOptions { viewport: ventana, ..Default::default() };
     let inicio = app::Inicio {
-        rutas: app::Rutas { config: archivo_config, temas: dir_temas },
+        rutas: app::Rutas { config: archivo_config, temas: dir_temas, espacios: dir_config.join("espacios.lua") },
         config,
         temas,
         carpetas,
         avisos,
         abrir,
+        desde_espacio,
     };
     eframe::run_native(
         "Solar",

@@ -152,15 +152,12 @@ pub struct SolarConfig {
     pub barra_lateral: i32,
     pub mostrar_barra_lateral: i32,
     pub vista: i32,
-    pub tamano_iconos: i32,
-    pub mostrar_ocultos: i32,
-    pub carpetas_primero: i32,
-    pub orden: i32,
-    pub orden_descendente: i32,
+    pub archivos: SolarAjustesVista,
     pub un_clic: i32,
     pub confirmar_papelera: i32,
     pub confirmar_eliminar: i32,
     pub terminal: *mut c_char,
+    pub restaurar_sesion: i32,
     pub mostrar_usb: i32,
     pub mostrar_discos_internos: i32,
     pub sonidos: i32,
@@ -172,6 +169,49 @@ pub struct SolarConfig {
     pub n_lugares: usize,
     pub atajos: *mut SolarAtajo,
     pub n_atajos: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SolarAjustesVista {
+    pub tamano_iconos: i32,
+    pub mostrar_ocultos: i32,
+    pub carpetas_primero: i32,
+    pub orden: i32,
+    pub orden_descendente: i32,
+    pub orbita_girar: i32,
+    pub orbita_velocidad: f64,
+    pub orbita_orden: i32,
+    pub orbita_electricidad: i32,
+}
+
+#[repr(C)]
+pub struct SolarPestana {
+    pub ruta: *mut c_char,
+    pub papelera: i32,
+    pub vista: i32,
+}
+
+#[repr(C)]
+pub struct SolarEspacioTrabajo {
+    pub id: *mut c_char,
+    pub nombre: *mut c_char,
+    pub icono: *mut c_char,
+    pub color: *mut c_char,
+    pub tema: *mut c_char,
+    pub vista: i32,
+    pub ajustes_propios: i32,
+    pub ajustes: SolarAjustesVista,
+    pub pestanas: *mut SolarPestana,
+    pub n_pestanas: usize,
+    pub activa: i32,
+}
+
+#[repr(C)]
+pub struct SolarEspacios {
+    pub activo: *mut c_char,
+    pub espacios: *mut SolarEspacioTrabajo,
+    pub n_espacios: usize,
 }
 
 #[repr(C)]
@@ -335,6 +375,18 @@ unsafe extern "C" {
     pub fn solar_config_guardar(archivo: *const c_char, c: *const SolarConfig) -> c_int;
     pub fn solar_config_liberar(c: *mut SolarConfig);
     pub fn solar_atajos_defecto(tabla: *mut *const SolarAtajo) -> usize;
+    pub fn solar_ajustes_vista_defecto(a: *mut SolarAjustesVista);
+
+    // Espacios de trabajo
+    pub fn solar_espacios_cargar(
+        archivo: *const c_char,
+        base: *const SolarAjustesVista,
+        e: *mut SolarEspacios,
+        avisos: *mut c_char,
+        tam: usize,
+    ) -> c_int;
+    pub fn solar_espacios_guardar(archivo: *const c_char, e: *const SolarEspacios) -> c_int;
+    pub fn solar_espacios_liberar(e: *mut SolarEspacios);
 
     pub fn solar_temas_cargar(dir_usuario: *const c_char, salida: *mut SolarTemas, avisos: *mut c_char, tam: usize) -> c_int;
     pub fn solar_temas_liberar(t: *mut SolarTemas);

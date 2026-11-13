@@ -948,10 +948,107 @@ pub enum Lado {
     Derecha,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Vista {
-    Cuadricula,
-    Lista,
+    Cuadricula = 0,
+    Lista = 1,
+    Mosaicos = 2,
+    Orbita = 3,
+}
+
+impl Vista {
+    pub const TODAS: [Vista; 4] = [Vista::Cuadricula, Vista::Lista, Vista::Mosaicos, Vista::Orbita];
+
+    pub fn de(v: i32) -> Self {
+        match v {
+            1 => Self::Lista,
+            2 => Self::Mosaicos,
+            3 => Self::Orbita,
+            _ => Self::Cuadricula,
+        }
+    }
+}
+
+/// En qué orden se acomodan los archivos de la vista Órbita (del sol hacia afuera).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum OrdenOrbita {
+    GrandePrimero = 0,
+    ChicoPrimero = 1,
+    Nombre = 2,
+    Tipo = 3,
+    Fecha = 4,
+    Aleatorio = 5,
+}
+
+impl OrdenOrbita {
+    pub const TODOS: [OrdenOrbita; 6] = [
+        OrdenOrbita::GrandePrimero,
+        OrdenOrbita::ChicoPrimero,
+        OrdenOrbita::Nombre,
+        OrdenOrbita::Tipo,
+        OrdenOrbita::Fecha,
+        OrdenOrbita::Aleatorio,
+    ];
+
+    pub fn de(v: i32) -> Self {
+        Self::TODOS.get(v.max(0) as usize).copied().unwrap_or(Self::GrandePrimero)
+    }
+
+    pub fn nombre(self) -> &'static str {
+        match self {
+            Self::GrandePrimero => "Más grandes al centro",
+            Self::ChicoPrimero => "Más chicos al centro",
+            Self::Nombre => "Por nombre",
+            Self::Tipo => "Por tipo",
+            Self::Fecha => "Más recientes al centro",
+            Self::Aleatorio => "Al azar",
+        }
+    }
+}
+
+/// Cómo se ven los archivos: la configuración general o la propia de un
+/// espacio de trabajo.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct AjustesVista {
+    pub tamano_iconos: f32,
+    pub mostrar_ocultos: bool,
+    pub carpetas_primero: bool,
+    pub orden: Orden,
+    pub orden_descendente: bool,
+    pub orbita_girar: bool,
+    pub orbita_velocidad: f32,
+    pub orbita_orden: OrdenOrbita,
+    pub orbita_electricidad: bool,
+}
+
+impl AjustesVista {
+    pub(crate) fn de_c(a: &ffi::SolarAjustesVista) -> Self {
+        Self {
+            tamano_iconos: a.tamano_iconos as f32,
+            mostrar_ocultos: a.mostrar_ocultos != 0,
+            carpetas_primero: a.carpetas_primero != 0,
+            orden: Orden::de(a.orden),
+            orden_descendente: a.orden_descendente != 0,
+            orbita_girar: a.orbita_girar != 0,
+            orbita_velocidad: a.orbita_velocidad as f32,
+            orbita_orden: OrdenOrbita::de(a.orbita_orden),
+            orbita_electricidad: a.orbita_electricidad != 0,
+        }
+    }
+
+    pub(crate) fn a_c(&self) -> ffi::SolarAjustesVista {
+        ffi::SolarAjustesVista {
+            tamano_iconos: self.tamano_iconos.round() as i32,
+            mostrar_ocultos: self.mostrar_ocultos as i32,
+            carpetas_primero: self.carpetas_primero as i32,
+            orden: self.orden as i32,
+            orden_descendente: self.orden_descendente as i32,
+            orbita_girar: self.orbita_girar as i32,
+            orbita_velocidad: self.orbita_velocidad as f64,
+            orbita_orden: self.orbita_orden as i32,
+            orbita_electricidad: self.orbita_electricidad as i32,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -972,16 +1069,15 @@ pub struct Config {
     pub barra_ubicacion: Posicion,
     pub barra_lateral: Lado,
     pub mostrar_barra_lateral: bool,
+    /// Vista de las pestañas de los espacios nuevos
     pub vista: Vista,
-    pub tamano_iconos: f32,
-    pub mostrar_ocultos: bool,
-    pub carpetas_primero: bool,
-    pub orden: Orden,
-    pub orden_descendente: bool,
+    /// Ajustes de archivos generales (los espacios pueden tener los suyos)
+    pub archivos: AjustesVista,
     pub un_clic: bool,
     pub confirmar_papelera: bool,
     pub confirmar_eliminar: bool,
     pub terminal: String,
+    pub restaurar_sesion: bool,
     pub mostrar_usb: bool,
     pub mostrar_discos_internos: bool,
     pub sonidos: bool,
@@ -1025,16 +1121,13 @@ impl Config {
             barra_ubicacion: if c.barra_ubicacion == 1 { Posicion::Abajo } else { Posicion::Arriba },
             barra_lateral: if c.barra_lateral == 1 { Lado::Derecha } else { Lado::Izquierda },
             mostrar_barra_lateral: c.mostrar_barra_lateral != 0,
-            vista: if c.vista == 1 { Vista::Lista } else { Vista::Cuadricula },
-            tamano_iconos: c.tamano_iconos as f32,
-            mostrar_ocultos: c.mostrar_ocultos != 0,
-            carpetas_primero: c.carpetas_primero != 0,
-            orden: Orden::de(c.orden),
-            orden_descendente: c.orden_descendente != 0,
+            vista: Vista::de(c.vista),
+            archivos: AjustesVista::de_c(&c.archivos),
             un_clic: c.un_clic != 0,
             confirmar_papelera: c.confirmar_papelera != 0,
             confirmar_eliminar: c.confirmar_eliminar != 0,
             terminal: unsafe { texto_de(c.terminal) },
+            restaurar_sesion: c.restaurar_sesion != 0,
             mostrar_usb: c.mostrar_usb != 0,
             mostrar_discos_internos: c.mostrar_discos_internos != 0,
             sonidos: c.sonidos != 0,
@@ -1100,16 +1193,13 @@ impl Config {
             barra_ubicacion: (self.barra_ubicacion == Posicion::Abajo) as i32,
             barra_lateral: (self.barra_lateral == Lado::Derecha) as i32,
             mostrar_barra_lateral: self.mostrar_barra_lateral as i32,
-            vista: (self.vista == Vista::Lista) as i32,
-            tamano_iconos: self.tamano_iconos.round() as i32,
-            mostrar_ocultos: self.mostrar_ocultos as i32,
-            carpetas_primero: self.carpetas_primero as i32,
-            orden: self.orden as i32,
-            orden_descendente: self.orden_descendente as i32,
+            vista: self.vista as i32,
+            archivos: self.archivos.a_c(),
             un_clic: self.un_clic as i32,
             confirmar_papelera: self.confirmar_papelera as i32,
             confirmar_eliminar: self.confirmar_eliminar as i32,
             terminal: terminal.as_ptr() as *mut c_char,
+            restaurar_sesion: self.restaurar_sesion as i32,
             mostrar_usb: self.mostrar_usb as i32,
             mostrar_discos_internos: self.mostrar_discos_internos as i32,
             sonidos: self.sonidos as i32,
@@ -1124,6 +1214,161 @@ impl Config {
         };
         let a = cruta(archivo);
         resultado(unsafe { ffi::solar_config_guardar(a.as_ptr(), &c) })
+    }
+}
+
+// ======================================================================
+//  Espacios de trabajo (~/.config/solar/espacios.lua)
+// ======================================================================
+
+/// Una pestaña guardada: dónde estaba y con qué vista.
+#[derive(Clone, PartialEq, Debug)]
+pub struct PestanaGuardada {
+    /// `None` = la papelera
+    pub ruta: Option<PathBuf>,
+    pub vista: Vista,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct EspacioTrabajo {
+    pub id: String,
+    pub nombre: String,
+    pub icono: String,
+    /// "#RRGGBB" o ""
+    pub color: String,
+    /// "" = el tema general
+    pub tema: String,
+    /// Vista para las pestañas nuevas
+    pub vista: Vista,
+    /// Si usa `ajustes` o los generales de config.lua
+    pub propios: bool,
+    pub ajustes: AjustesVista,
+    pub pestanas: Vec<PestanaGuardada>,
+    pub activa: usize,
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct Espacios {
+    /// id del último espacio que se usó
+    pub activo: String,
+    pub lista: Vec<EspacioTrabajo>,
+}
+
+pub struct CargaEspacios {
+    pub espacios: Espacios,
+    pub avisos: Option<String>,
+    pub existia: bool,
+}
+
+impl Espacios {
+    /// `base`: los ajustes para los espacios que no digan los suyos.
+    pub fn cargar(archivo: &Path, base: &AjustesVista) -> CargaEspacios {
+        let mut e = ffi::SolarEspacios { activo: ptr::null_mut(), espacios: ptr::null_mut(), n_espacios: 0 };
+        let ca = cruta(archivo);
+        let b = base.a_c();
+        let mut avisos = vec![0 as c_char; 8192];
+        let r = unsafe { ffi::solar_espacios_cargar(ca.as_ptr(), &b, &mut e, avisos.as_mut_ptr(), avisos.len()) };
+        let mut lista = Vec::with_capacity(e.n_espacios);
+        for i in 0..e.n_espacios {
+            let w = unsafe { &*e.espacios.add(i) };
+            let mut pestanas = Vec::with_capacity(w.n_pestanas);
+            for j in 0..w.n_pestanas {
+                let p = unsafe { &*w.pestanas.add(j) };
+                let ruta = (p.papelera == 0).then(|| expandir(&unsafe { texto_de(p.ruta) }));
+                pestanas.push(PestanaGuardada { ruta, vista: Vista::de(p.vista) });
+            }
+            lista.push(EspacioTrabajo {
+                id: unsafe { texto_de(w.id) },
+                nombre: unsafe { texto_de(w.nombre) },
+                icono: unsafe { texto_de(w.icono) },
+                color: unsafe { texto_de(w.color) },
+                tema: unsafe { texto_de(w.tema) },
+                vista: Vista::de(w.vista),
+                propios: w.ajustes_propios != 0,
+                ajustes: AjustesVista::de_c(&w.ajustes),
+                activa: (w.activa.max(0) as usize).min(pestanas.len().saturating_sub(1)),
+                pestanas,
+            });
+        }
+        let activo = unsafe { texto_de(e.activo) };
+        unsafe { ffi::solar_espacios_liberar(&mut e) };
+        let texto = texto_de_buffer(&avisos);
+        CargaEspacios {
+            espacios: Espacios { activo, lista },
+            avisos: (!texto.is_empty()).then_some(texto),
+            existia: r != libc::ENOENT,
+        }
+    }
+
+    pub fn guardar(&self, archivo: &Path) -> Result<(), ErrorSolar> {
+        // Primero todos los textos (deben vivir hasta que el núcleo termine)
+        struct Textos {
+            id: CString,
+            nombre: CString,
+            icono: CString,
+            color: CString,
+            tema: CString,
+            rutas: Vec<CString>,
+        }
+        let textos: Vec<Textos> = self
+            .lista
+            .iter()
+            .map(|w| Textos {
+                id: ctexto(&w.id),
+                nombre: ctexto(&w.nombre),
+                icono: ctexto(&w.icono),
+                color: ctexto(&w.color),
+                tema: ctexto(&w.tema),
+                rutas: w
+                    .pestanas
+                    .iter()
+                    .map(|p| ctexto(&p.ruta.as_deref().map(contraer).unwrap_or_default()))
+                    .collect(),
+            })
+            .collect();
+        let mut pestanas: Vec<Vec<ffi::SolarPestana>> = self
+            .lista
+            .iter()
+            .zip(&textos)
+            .map(|(w, t)| {
+                w.pestanas
+                    .iter()
+                    .zip(&t.rutas)
+                    .map(|(p, r)| ffi::SolarPestana {
+                        ruta: r.as_ptr() as *mut c_char,
+                        papelera: p.ruta.is_none() as i32,
+                        vista: p.vista as i32,
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut espacios: Vec<ffi::SolarEspacioTrabajo> = self
+            .lista
+            .iter()
+            .zip(&textos)
+            .zip(pestanas.iter_mut())
+            .map(|((w, t), p)| ffi::SolarEspacioTrabajo {
+                id: t.id.as_ptr() as *mut c_char,
+                nombre: t.nombre.as_ptr() as *mut c_char,
+                icono: t.icono.as_ptr() as *mut c_char,
+                color: t.color.as_ptr() as *mut c_char,
+                tema: t.tema.as_ptr() as *mut c_char,
+                vista: w.vista as i32,
+                ajustes_propios: w.propios as i32,
+                ajustes: w.ajustes.a_c(),
+                pestanas: p.as_mut_ptr(),
+                n_pestanas: p.len(),
+                activa: w.activa as i32,
+            })
+            .collect();
+        let activo = ctexto(&self.activo);
+        let e = ffi::SolarEspacios {
+            activo: activo.as_ptr() as *mut c_char,
+            espacios: espacios.as_mut_ptr(),
+            n_espacios: espacios.len(),
+        };
+        let a = cruta(archivo);
+        resultado(unsafe { ffi::solar_espacios_guardar(a.as_ptr(), &e) })
     }
 }
 
@@ -1269,7 +1514,7 @@ mod pruebas {
 
     #[test]
     fn version_y_errores() {
-        assert_eq!(version(), "0.1.1-alpha");
+        assert_eq!(version(), "0.1.2-alpha");
         assert_eq!(texto_error(13), "Permiso denegado");
     }
 
@@ -1436,7 +1681,7 @@ pub fn programa_lanzar(p: &Programa, rutas: &[PathBuf], terminal: &str) -> Resul
     let t = ctexto(terminal);
     resultado(unsafe { ffi::solar_programa_lanzar(&c, pr.as_ptr(), pr.len(), t.as_ptr()) }).map_err(|e| {
         if e.codigo == 2 && p.terminal {
-            ErrorSolar { codigo: e.codigo, mensaje: format!("«{}» se abre en una terminal y no encontré ninguna. Elige una en Ajustes → Archivos.", p.nombre) }
+            ErrorSolar { codigo: e.codigo, mensaje: format!("«{}» se abre en una terminal y no encontré ninguna. Elige una en Ajustes › Archivos.", p.nombre) }
         } else {
             ErrorSolar { codigo: e.codigo, mensaje: format!("No se pudo abrir con «{}»: {}", p.nombre, e.mensaje) }
         }
