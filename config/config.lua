@@ -43,13 +43,30 @@ return {
   mostrar_barra_lateral = true,
 
   -- ── Archivos ────────────────────────────────────────────────────────
-  vista = "cuadricula",      -- "cuadricula" | "lista"
+  -- (un espacio de trabajo puede tener los suyos: ver espacios.lua)
+  vista = "cuadricula",      -- la de las pestañas nuevas de los espacios
+                             -- nuevos: "cuadricula" | "lista" | "mosaicos"
+                             -- | "orbita" (cada pestaña recuerda la suya)
   tamano_iconos = 72,        -- 40 a 160 (también Ctrl + rueda del mouse)
   mostrar_ocultos = false,   -- archivos que empiezan con punto
   carpetas_primero = true,
   orden = "nombre",          -- "nombre" | "tamano" | "fecha" | "tipo"
   orden_descendente = false,
   un_clic = false,           -- abrir con un solo clic (como KDE)
+  restaurar_sesion = true,   -- al abrir Solar, volver a las pestañas de la
+                             -- última vez (cada espacio recuerda las suyas)
+
+  -- ── Vista Órbita ────────────────────────────────────────────────────
+  -- La carpeta abierta va en el centro (como el sol) y lo de adentro le da
+  -- vueltas, todo con su ícono de siempre.
+  orbita_girar = true,       -- que giren (se detienen solos al pasar el
+                             -- mouse por encima)
+  orbita_velocidad = 1.0,    -- 0.1 a 4.0 (1.0 = una vuelta en 48 s)
+  orbita_orden = "grande_primero",  -- del centro hacia afuera: "grande_primero"
+                             -- | "chico_primero" | "nombre" | "tipo"
+                             -- | "fecha" (recientes cerca) | "aleatorio"
+  orbita_electricidad = true,  -- órbitas eléctricas, siempre encendidas
+                               -- (false = líneas tranquilas)
 
   -- ── Comportamiento ──────────────────────────────────────────────────
   confirmar_papelera = false,
@@ -79,10 +96,15 @@ return {
   -- Right, Up, Down, Home, End, Enter, Delete, Backspace, Plus, Minus,
   -- Comma… Usa "" o false para quitar un atajo. Los que no pongas quedan
   -- como vienen.
+  -- Si un atajo tuyo choca con uno que trae una versión nueva de Solar,
+  -- gana el tuyo y el nuevo se queda sin atajo (Solar te avisa).
   atajos = {
     nueva_carpeta = "Ctrl+Shift+N",
     personalizar  = "Ctrl+E",       -- color y logotipo de la carpeta
     terminal      = "F4",
+    vista_orbita  = "Ctrl+4",
+    nueva_pestana = "Ctrl+T",
+    espacios      = "Ctrl+Shift+E", -- menú de espacios de trabajo
     eliminar      = false,          -- sin atajo para eliminar para siempre
   },
 }
