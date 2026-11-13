@@ -1,27 +1,94 @@
-//! La vista de archivos: cuadrícula y lista, selección (clic, Ctrl, Shift y
-//! con banda), arrastrar y soltar, teclado y menús del clic derecho.
+//! Las vistas de archivos (cuadrícula, lista, mosaicos y órbita) comparten
+//! todo lo que no es acomodar y pintar: los clics y la selección (Ctrl,
+//! Shift, banda), arrastrar y soltar, los menús, el teclado, la búsqueda y
+//! las animaciones. Cada vista solo dice *dónde* va cada archivo y *cómo* se
+//! ve (el trait [`Disposicion`]). Así se puede cambiar de vista sin perder la
+//! selección, el foco ni la carpeta, y agregar vistas nuevas es poco código.
 
-use crate::app::{Accion, Arrastre, Banda, CambioEstilo, ModoPortapapeles, Solar, Ubicacion};
+mod cuadricula;
+mod lista;
+pub(crate) mod menus;
+mod mosaicos;
+pub(crate) mod orbita;
+
+use crate::app::{Accion, Arrastre, Banda, ModoPortapapeles, Solar, Ubicacion};
 use crate::iconos::{self, Logotipo};
-use crate::nucleo::{Entrada, Orden, TipoEntrada, Vista};
+use crate::nucleo::{Entrada, TipoEntrada, Vista};
 use crate::tema::{Paleta, con_alfa};
-use crate::ui_util;
-use crate::dialogos;
-use crate::nucleo::{Afinidad, Programa};
-use crate::{formato, nucleo};
+use crate::formato;
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, CursorIcon, Event, FontId, Frame, Galley, Key, Margin, PointerButton, Pos2,
-    Rect, Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, Ui, pos2, text::LayoutJob, vec2,
+    self, Align, Align2, CornerRadius, CursorIcon, Event, FontId, Frame, Galley, Key, Margin, Painter, PointerButton, Pos2,
+    Rect, Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use egui_phosphor::regular as ph;
+use std::ops::Range;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
 
-const ALTO_FILA: f32 = 30.0;
+pub(crate) use orbita::{CambioOrbita, EstadoOrbita};
 
-/// Lo que se necesita para dibujar un elemento (copiado para no pelear con el
-/// verificador de préstamos mientras se ejecutan acciones).
+/// Cómo está un elemento en este momento (para pintarlo).
+pub(crate) struct Visual {
+    pub seleccionado: bool,
+    /// Se puede soltar lo que arrastras aquí (es una carpeta)
+    pub soltar_aqui: bool,
+    /// 0 → 1 con el mouse encima (animado)
+    pub hover: f32,
+    /// 0 → 1 mientras se presiona
+    pub presion: f32,
+    /// 0 → 1 → 0 cuando se le cambia el color o el logotipo
+    pub salto: f32,
+    /// Más transparente si está cortado u oculto
+    pub alfa: f32,
+    /// Posición entre los visibles (para alternar el fondo de las filas)
+    pub indice: usize,
+}
+
+/// Lo único que cambia de una vista a otra.
+pub(crate) trait Disposicion {
+    /// ¿Se desplaza con la rueda? (la Órbita no: se acerca y se aleja)
+    fn desplazable(&self) -> bool {
+        true
+    }
+    /// Tamaño de todo el contenido.
+    fn tamano(&self) -> Vec2;
+    /// Dónde va el elemento `k` (relativo al origen del contenido).
+    fn rect(&self, k: usize) -> Rect;
+    /// Los elementos que pueden caer en esta parte visible (en coordenadas
+    /// del contenido); los que no se ven ni se tocan.
+    fn rango(&self, visible: Rect) -> Range<usize>;
+    /// A quién se pasa con una tecla de flecha, Inicio, Fin, RePág o AvPág.
+    fn vecino(&self, actual: Option<usize>, tecla: Key) -> Option<usize>;
+    /// La parte que responde al mouse.
+    fn zona(&self, rect: Rect) -> Rect {
+        rect.shrink(4.0)
+    }
+    /// La caja que cuenta para la selección con banda.
+    fn caja_banda(&self, k: usize) -> Rect {
+        self.rect(k).shrink(8.0)
+    }
+    /// Dónde se ve el elemento mientras aparece (t de 0 a 1 al abrir la carpeta).
+    fn al_aparecer(&self, rect: Rect, t: f32) -> Rect {
+        rect.translate(vec2(0.0, (1.0 - t) * 12.0))
+    }
+    /// Pinta un elemento.
+    fn pintar(&self, app: &Solar, painter: &Painter, e: &Entrada, rect: Rect, v: &Visual);
+    /// Algo arriba de la lista (los títulos de las columnas).
+    fn encabezado(&self, _app: &Solar, _ui: &mut Ui, _p: &Paleta, _acciones: &mut Vec<Accion>) {}
+    /// Lo que va detrás de los elementos (el sol y las órbitas).
+    fn decorar(&self, _app: &Solar, _ui: &mut Ui, _area: Rect, _acciones: &mut Vec<Accion>) {}
+}
+
+/// Íconos y nombres de las vistas (para menús y botones).
+pub(crate) fn info_vista(v: Vista) -> (&'static str, &'static str, &'static str) {
+    match v {
+        Vista::Cuadricula => (ph::SQUARES_FOUR, "Cuadrícula", "vista_cuadricula"),
+        Vista::Lista => (ph::LIST_DASHES, "Lista (detalles)", "vista_lista"),
+        Vista::Mosaicos => (ph::SQUARE_SPLIT_HORIZONTAL, "Mosaicos", "vista_mosaicos"),
+        Vista::Orbita => (ph::PLANET, "Órbita", "vista_orbita"),
+    }
+}
+
 /// Lo que se dibuja de un archivo: apunta a la entrada compartida (Arc), así
 /// que crearlo en cada cuadro no copia nada.
 struct Item {
@@ -35,8 +102,15 @@ impl std::ops::Deref for Item {
     }
 }
 
-
-fn texto_ajustado(painter: &egui::Painter, texto: &str, ancho: f32, filas: usize, tam: f32, color: Color32, centrado: bool) -> Arc<Galley> {
+pub(crate) fn texto_ajustado(
+    painter: &Painter,
+    texto: &str,
+    ancho: f32,
+    filas: usize,
+    tam: f32,
+    color: egui::Color32,
+    centrado: bool,
+) -> Arc<Galley> {
     let mut job = LayoutJob::simple(texto.to_string(), FontId::proportional(tam), color, ancho.max(10.0));
     job.wrap.max_rows = filas;
     job.wrap.break_anywhere = false;
@@ -47,7 +121,7 @@ fn texto_ajustado(painter: &egui::Painter, texto: &str, ancho: f32, filas: usize
     painter.layout_job(job)
 }
 
-fn pintar_galley_centrado(painter: &egui::Painter, centro_x: f32, y: f32, galley: Arc<Galley>, color: Color32) {
+pub(crate) fn pintar_galley_centrado(painter: &Painter, centro_x: f32, y: f32, galley: Arc<Galley>, color: egui::Color32) {
     let x = centro_x - galley.rect.center().x;
     painter.galley(pos2(x, y), galley, color);
 }
@@ -58,20 +132,18 @@ impl Solar {
         Item { entrada: e.clone() }
     }
 
-    fn cortado(&self, ruta: &PathBuf) -> bool {
+    pub(crate) fn cortado(&self, ruta: &PathBuf) -> bool {
         self.portapapeles.as_ref().is_some_and(|p| p.modo == ModoPortapapeles::Cortar && p.rutas.contains(ruta))
     }
 
-    /// Opacidad y desplazamiento de un elemento al abrir la carpeta
-    /// (aparecen en cascada, de arriba hacia abajo).
-    fn aparicion(&self, orden: usize) -> (f32, f32) {
-        let Some(desde) = self.carga_animada else { return (1.0, 0.0) };
+    /// 0 → 1 mientras un elemento aparece al abrir la carpeta (en cascada).
+    fn aparicion(&self, orden: usize) -> f32 {
+        let Some(desde) = self.carga_animada else { return 1.0 };
         if !self.config.animaciones {
-            return (1.0, 0.0);
+            return 1.0;
         }
         let t = (desde.elapsed().as_secs_f32() - orden.min(30) as f32 * 0.016) / 0.22;
-        let e = crate::app::ease(t);
-        (e.max(0.0), (1.0 - e) * 12.0)
+        crate::app::ease(t).max(0.0)
     }
 
     /// 0 → 1 → 0 durante el "salto" de una carpeta recién personalizada.
@@ -105,7 +177,7 @@ impl Solar {
     }
 
     /// Dibuja el ícono de una entrada (carpeta con su estilo o archivo).
-    pub(crate) fn pintar_icono(&self, painter: &egui::Painter, rect: Rect, e: &Entrada, alfa: f32) {
+    pub(crate) fn pintar_icono(&self, painter: &Painter, rect: Rect, e: &Entrada, alfa: f32) {
         match e.tipo {
             TipoEntrada::Carpeta => {
                 // Sin copiar el estilo: esto corre en cada cuadro por cada carpeta visible
@@ -124,7 +196,7 @@ impl Solar {
     }
 
     // ------------------------------------------------------------------
-    //  Panel central
+    //  Panel central: lo mismo para todas las vistas
     // ------------------------------------------------------------------
 
     pub(crate) fn vista_central(&mut self, ui: &mut Ui, acciones: &mut Vec<Accion>) {
@@ -133,38 +205,126 @@ impl Solar {
             if self.ubicacion == Ubicacion::Papelera {
                 self.aviso_papelera(ui, &p, acciones);
             }
-            if self.config.vista == Vista::Lista {
-                self.encabezado_lista(ui, &p, acciones);
+            let vista = self.vista();
+            if vista == Vista::Orbita {
+                let area = ui.available_rect_before_wrap();
+                ui.allocate_rect(area, Sense::hover());
+                let orbita = self.preparar_orbita(ui, area, acciones);
+                let en_contenido = Rect::from_min_size(Pos2::ZERO, area.size());
+                self.contenido(ui, &p, &orbita, area, area.min, en_contenido, acciones);
+                self.superposicion_orbita(ui, &p, area, acciones);
+                self.disposicion = Some(Box::new(orbita));
+                return;
             }
-            match self.config.vista {
-                Vista::Cuadricula => self.cuadricula(ui, &p, acciones),
-                Vista::Lista => self.lista(ui, &p, acciones),
-            }
+            let ancho = ui.available_width();
+            let alto = ui.available_height();
+            let d: Box<dyn Disposicion> = match vista {
+                Vista::Lista => Box::new(lista::Lista::nueva(self.visibles.len(), ancho, alto)),
+                Vista::Mosaicos => Box::new(mosaicos::Mosaicos::nuevos(self.visibles.len(), ancho, alto, self.av().tamano_iconos)),
+                _ => Box::new(cuadricula::Cuadricula::nueva(self.visibles.len(), ancho, alto, self.av().tamano_iconos)),
+            };
+            d.encabezado(self, ui, &p, acciones);
+            let tamano = d.tamano();
+            ScrollArea::vertical()
+                .id_salt(("vista", self.id_pestana(), vista as u8))
+                .auto_shrink(false)
+                .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..Default::default() })
+                .show_viewport(ui, |ui, viewport| {
+                    let origen = ui.max_rect().min;
+                    ui.set_min_size(vec2(ui.available_width(), tamano.y.max(viewport.height())));
+                    let visible = viewport.translate(origen.to_vec2());
+                    self.contenido(ui, &p, &*d, visible, origen, viewport, acciones);
+                });
+            self.disposicion = Some(d);
         });
+    }
+
+    /// Fondo, elementos, banda y estado vacío. `visible` está en coordenadas
+    /// de pantalla; `en_contenido` es lo mismo en coordenadas del contenido.
+    #[allow(clippy::too_many_arguments)]
+    fn contenido(
+        &mut self,
+        ui: &mut Ui,
+        p: &Paleta,
+        d: &dyn Disposicion,
+        visible: Rect,
+        origen: Pos2,
+        en_contenido: Rect,
+        acciones: &mut Vec<Accion>,
+    ) {
+        let fondo = ui.interact(visible, ui.id().with("fondo"), Sense::click_and_drag());
+        d.decorar(self, ui, visible, acciones);
+        let rango = d.rango(en_contenido);
+        let primero = rango.start;
+        let margen = en_contenido.expand(60.0);
+        let mut sobre_carpeta = false;
+        for k in rango {
+            let r = d.rect(k);
+            if !margen.intersects(r) {
+                continue;
+            }
+            sobre_carpeta |= self.elemento(ui, p, d, k, k - primero, r.translate(origen.to_vec2()), acciones);
+        }
+        self.limpiar_animaciones(ui.ctx());
+        if self.desplazar_a_foco {
+            if d.desplazable()
+                && let Some(k) = self.foco.clone().and_then(|f| self.indice_visible(&f))
+            {
+                ui.scroll_to_rect(d.rect(k).translate(origen.to_vec2()), None);
+            }
+            self.desplazar_a_foco = false;
+        }
+        if self.visibles.is_empty() {
+            self.estado_vacio(ui, p, visible);
+        }
+        self.fondo(ui, p, &fondo, origen, &|k| d.caja_banda(k), d.desplazable(), sobre_carpeta, acciones);
+    }
+
+    /// Un archivo: se pregunta a la vista cómo pintarlo y el resto es común.
+    /// Devuelve si es una carpeta con archivos arrastrados encima.
+    #[allow(clippy::too_many_arguments)]
+    fn elemento(&mut self, ui: &mut Ui, p: &Paleta, d: &dyn Disposicion, k: usize, orden: usize, rect: Rect, acciones: &mut Vec<Accion>) -> bool {
+        let _ = p;
+        let it = self.item(k);
+        let resp = ui.interact(d.zona(rect), ui.id().with(("elemento", &it.ruta)), Sense::click_and_drag());
+        let seleccionado = self.seleccion.contains(&it.ruta);
+        let soltar_aqui = it.es_carpeta() && resp.dnd_hover_payload::<Arrastre>().is_some_and(|a| !a.0.contains(&it.ruta));
+        let ctx = ui.ctx().clone();
+        let visual = Visual {
+            seleccionado,
+            soltar_aqui,
+            hover: ctx.animate_bool_with_time(resp.id.with("h"), resp.hovered() && !seleccionado, 0.14),
+            presion: ctx.animate_bool_with_time(resp.id.with("p"), resp.is_pointer_button_down_on(), 0.08),
+            salto: self.salto(&it.ruta),
+            alfa: if self.cortado(&it.ruta) { 0.45 } else if it.entrada.es_oculto { 0.65 } else { 1.0 },
+            indice: k,
+        };
+        // Al abrir la carpeta, los elementos aparecen en cascada
+        let t = self.aparicion(orden);
+        let mut pintor = ui.painter().clone();
+        pintor.multiply_opacity(t);
+        d.pintar(self, &pintor, &it.entrada, d.al_aparecer(rect, t), &visual);
+        let resp = resp.on_hover_ui_at_pointer(|ui| self.tooltip(ui, &it.entrada));
+        self.interacciones(ui, &resp, &it, acciones);
+        soltar_aqui
     }
 
     fn aviso_papelera(&mut self, ui: &mut Ui, p: &Paleta, acciones: &mut Vec<Accion>) {
         Frame::new().fill(p.superficie).inner_margin(Margin::symmetric(16, 10)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(ph::TRASH).size(18.0).color(p.texto_tenue));
-                ui.label(
-                    RichText::new("Lo que está aquí se puede restaurar hasta que vacíes la papelera.")
-                        .color(p.texto_tenue),
-                );
+                ui.label(RichText::new("Lo que está aquí se puede restaurar hasta que vacíes la papelera.").color(p.texto_tenue));
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     let hay = !self.entradas.is_empty();
-                    let vaciar = egui::Button::new(RichText::new(format!("{}  Vaciar papelera", ph::BROOM)).color(
-                        if hay { p.peligro } else { p.texto_tenue },
-                    ));
+                    let vaciar = egui::Button::new(
+                        RichText::new(format!("{}  Vaciar papelera", ph::BROOM)).color(if hay { p.peligro } else { p.texto_tenue }),
+                    );
                     if ui.add_enabled(hay, vaciar).clicked() {
                         acciones.push(Accion::VaciarPapelera);
                     }
                     let sel = self.seleccionados();
                     let texto = if sel.is_empty() { "Restaurar todo" } else { "Restaurar selección" };
-                    if ui
-                        .add_enabled(hay, egui::Button::new(format!("{}  {texto}", ph::ARROW_COUNTER_CLOCKWISE)))
-                        .clicked()
-                    {
+                    if ui.add_enabled(hay, egui::Button::new(format!("{}  {texto}", ph::ARROW_COUNTER_CLOCKWISE))).clicked() {
                         let rutas = if sel.is_empty() { self.entradas.iter().map(|e| e.ruta.clone()).collect() } else { sel };
                         acciones.push(Accion::Restaurar(rutas));
                     }
@@ -190,110 +350,18 @@ impl Solar {
         } else {
             (ph::FOLDER_OPEN, "Esta carpeta está vacía".into(), "Arrastra archivos aquí o usa el clic derecho para crear algo.".into())
         };
+        // En la órbita el sol ocupa el centro: el aviso va abajo
+        let orbita = self.vista() == Vista::Orbita;
         let painter = ui.painter_at(area);
-        let c = area.center() - vec2(0.0, 30.0);
-        painter.text(c, Align2::CENTER_CENTER, glifo, FontId::proportional(54.0), con_alfa(p.texto_tenue, 0.55));
+        let c = if orbita { pos2(area.center().x, area.bottom() - 120.0) } else { area.center() - vec2(0.0, 30.0) };
+        if !orbita {
+            painter.text(c, Align2::CENTER_CENTER, glifo, FontId::proportional(54.0), con_alfa(p.texto_tenue, 0.55));
+        }
         painter.text(c + vec2(0.0, 50.0), Align2::CENTER_CENTER, titulo, FontId::proportional(17.0), p.texto);
         if !detalle.is_empty() {
             let g = texto_ajustado(&painter, &detalle, (area.width() - 60.0).max(120.0), 3, 13.0, p.texto_tenue, true);
             pintar_galley_centrado(&painter, c.x, c.y + 66.0, g, p.texto_tenue);
         }
-    }
-
-    // ------------------------------------------------------------------
-    //  Cuadrícula
-    // ------------------------------------------------------------------
-
-    fn cuadricula(&mut self, ui: &mut Ui, p: &Paleta, acciones: &mut Vec<Accion>) {
-        let icono = self.config.tamano_iconos.round();
-        let margen = 12.0;
-        let ancho_min = (icono + 46.0).max(96.0);
-        let alto = icono + 60.0;
-        let disponible = (ui.available_width() - margen * 2.0).max(ancho_min);
-        let cols = ((disponible / ancho_min).floor() as usize).max(1);
-        let ancho = disponible / cols as f32;
-        self.columnas = cols;
-        let n = self.visibles.len();
-        let filas = n.div_ceil(cols);
-        let alto_total = filas as f32 * alto + margen * 2.0;
-        let celda = move |k: usize| {
-            let (f, c) = (k / cols, k % cols);
-            Rect::from_min_size(pos2(margen + c as f32 * ancho, margen + f as f32 * alto), vec2(ancho, alto))
-        };
-
-        ScrollArea::vertical()
-            .id_salt("cuadricula")
-            .auto_shrink(false)
-            .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..Default::default() })
-            .show_viewport(ui, |ui, viewport| {
-                let origen = ui.max_rect().min;
-                ui.set_min_size(vec2(ui.available_width(), alto_total.max(viewport.height())));
-                self.filas_visibles = ((viewport.height() / alto) as usize).max(1);
-                let visible = viewport.translate(origen.to_vec2());
-                let fondo = ui.interact(visible, ui.id().with("fondo"), Sense::click_and_drag());
-
-                let primera = (((viewport.top() - margen) / alto).floor().max(0.0)) as usize;
-                let ultima = (((viewport.bottom() - margen) / alto).ceil().max(0.0)) as usize + 1;
-                for k in (primera * cols)..(ultima * cols).min(n) {
-                    let rect = celda(k).translate(origen.to_vec2());
-                    self.celda(ui, p, k, k - primera * cols, rect, icono, acciones);
-                }
-                self.limpiar_animaciones(ui.ctx());
-                if self.desplazar_a_foco {
-                    if let Some(k) = self.foco.clone().and_then(|f| self.indice_visible(&f)) {
-                        ui.scroll_to_rect(celda(k).translate(origen.to_vec2()), None);
-                    }
-                    self.desplazar_a_foco = false;
-                }
-                if n == 0 {
-                    self.estado_vacio(ui, p, visible);
-                }
-                self.fondo(ui, p, &fondo, origen, &celda, acciones);
-            });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn celda(&mut self, ui: &mut Ui, p: &Paleta, k: usize, orden: usize, rect: Rect, icono: f32, acciones: &mut Vec<Accion>) {
-        let it = self.item(k);
-        let resp = ui.interact(rect.shrink(4.0), ui.id().with(("celda", &it.ruta)), Sense::click_and_drag());
-        let seleccionado = self.seleccion.contains(&it.ruta);
-        let soltar_aqui = it.es_carpeta()
-            && resp.dnd_hover_payload::<Arrastre>().is_some_and(|a| !a.0.contains(&it.ruta));
-        // Animaciones: aparecer al abrir la carpeta, levantarse con el mouse,
-        // encogerse al presionar y "saltar" al cambiar de color o logotipo
-        let (aparicion, dy) = self.aparicion(orden);
-        let ctx = ui.ctx().clone();
-        let h = ctx.animate_bool_with_time(resp.id.with("h"), resp.hovered() && !seleccionado, 0.14);
-        let presion = ctx.animate_bool_with_time(resp.id.with("p"), resp.is_pointer_button_down_on(), 0.08);
-        let salto = self.salto(&it.ruta);
-        let mut pintor = ui.painter().clone();
-        pintor.multiply_opacity(aparicion);
-        let painter = &pintor;
-        let rect = rect.translate(vec2(0.0, dy));
-        let caja = rect.shrink(5.0);
-        let radio = CornerRadius::same(10);
-        if seleccionado {
-            painter.rect(caja, radio, p.seleccion, Stroke::new(1.0, p.seleccion_borde), StrokeKind::Inside);
-        } else if soltar_aqui {
-            painter.rect(caja, radio, con_alfa(p.acento, 0.18), Stroke::new(2.0, p.acento), StrokeKind::Inside);
-        } else if h > 0.0 {
-            painter.rect_filled(caja, radio, con_alfa(p.hover, h * p.hover.a() as f32 / 255.0));
-        }
-
-        let alfa = if self.cortado(&it.ruta) { 0.45 } else if it.entrada.es_oculto { 0.65 } else { 1.0 };
-        let escala = 1.0 + 0.05 * h - 0.05 * presion + 0.14 * salto;
-        let rect_icono = Rect::from_center_size(
-            pos2(rect.center().x, rect.top() + 10.0 + icono / 2.0 - 3.0 * h),
-            vec2(icono * escala, icono * escala),
-        );
-        self.pintar_icono(painter, rect_icono, &it.entrada, alfa);
-
-        let color = if alfa < 1.0 { con_alfa(p.texto, 0.75) } else { p.texto };
-        let g = texto_ajustado(painter, &it.nombre, rect.width() - 14.0, 2, 13.0, color, true);
-        pintar_galley_centrado(painter, rect.center().x, rect.top() + 16.0 + icono, g, color);
-
-        let resp = resp.on_hover_ui_at_pointer(|ui| self.tooltip(ui, &it.entrada));
-        self.interacciones(ui, &resp, &it, acciones);
     }
 
     fn tooltip(&self, ui: &mut Ui, e: &Entrada) {
@@ -308,155 +376,7 @@ impl Solar {
     }
 
     // ------------------------------------------------------------------
-    //  Lista
-    // ------------------------------------------------------------------
-
-    fn columnas_lista(ancho: f32) -> (f32, Option<f32>, Option<f32>, Option<f32>) {
-        let tam = (ancho >= 420.0).then_some(96.0);
-        let fecha = (ancho >= 520.0).then_some(150.0);
-        let tipo = (ancho >= 700.0).then_some(180.0);
-        let nombre = ancho - tam.unwrap_or(0.0) - fecha.unwrap_or(0.0) - tipo.unwrap_or(0.0);
-        (nombre, tam, tipo, fecha)
-    }
-
-    fn encabezado_lista(&mut self, ui: &mut Ui, p: &Paleta, acciones: &mut Vec<Accion>) {
-        let ancho = ui.available_width() - 24.0;
-        let (nombre, tam, tipo, fecha) = Self::columnas_lista(ancho);
-        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-        let painter = ui.painter();
-        painter.line_segment(
-            [rect.left_bottom() + vec2(12.0, 0.0), rect.right_bottom() - vec2(12.0, 0.0)],
-            Stroke::new(1.0, con_alfa(p.borde, 0.8)),
-        );
-        let mut x = rect.left() + 12.0;
-        let columnas = [
-            (Some(nombre), "Nombre", Orden::Nombre, false),
-            (tam, "Tamaño", Orden::Tamano, true),
-            (tipo, "Tipo", Orden::Tipo, false),
-            (fecha, "Modificado", Orden::Fecha, false),
-        ];
-        for (ancho_col, titulo, orden, derecha) in columnas {
-            let Some(w) = ancho_col else { continue };
-            let caja = Rect::from_min_size(pos2(x, rect.top()), vec2(w, rect.height()));
-            let resp = ui.interact(caja, ui.id().with(("columna", titulo)), Sense::click());
-            let activa = self.config.orden == orden;
-            let flecha = if !activa {
-                ""
-            } else if self.config.orden_descendente {
-                ph::CARET_DOWN
-            } else {
-                ph::CARET_UP
-            };
-            let color = if activa || resp.hovered() { p.texto } else { p.texto_tenue };
-            let texto = format!("{titulo} {flecha}");
-            let (pos, ancla) = if derecha {
-                (pos2(caja.right() - 10.0, caja.center().y), Align2::RIGHT_CENTER)
-            } else {
-                (pos2(caja.left() + if titulo == "Nombre" { 34.0 } else { 8.0 }, caja.center().y), Align2::LEFT_CENTER)
-            };
-            ui.painter().text(pos, ancla, texto, FontId::proportional(12.5), color);
-            if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                acciones.push(Accion::Ordenar(orden));
-            }
-            x += w;
-        }
-    }
-
-    fn lista(&mut self, ui: &mut Ui, p: &Paleta, acciones: &mut Vec<Accion>) {
-        let n = self.visibles.len();
-        let margen = 6.0;
-        let alto_total = n as f32 * ALTO_FILA + margen * 2.0;
-        self.columnas = 1;
-        let ancho_util = ui.available_width() - 24.0;
-        let fila = move |k: usize| {
-            Rect::from_min_size(pos2(12.0, margen + k as f32 * ALTO_FILA), vec2(ancho_util, ALTO_FILA))
-        };
-        ScrollArea::vertical()
-            .id_salt("lista")
-            .auto_shrink(false)
-            .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..Default::default() })
-            .show_viewport(ui, |ui, viewport| {
-                let origen = ui.max_rect().min;
-                ui.set_min_size(vec2(ui.available_width(), alto_total.max(viewport.height())));
-                self.filas_visibles = ((viewport.height() / ALTO_FILA) as usize).max(1);
-                let visible = viewport.translate(origen.to_vec2());
-                let fondo = ui.interact(visible, ui.id().with("fondo"), Sense::click_and_drag());
-                let primera = ((viewport.top() - margen) / ALTO_FILA).floor().max(0.0) as usize;
-                let ultima = (((viewport.bottom() - margen) / ALTO_FILA).ceil().max(0.0) as usize + 1).min(n);
-                for k in primera..ultima {
-                    let rect = fila(k).translate(origen.to_vec2());
-                    self.fila_lista(ui, p, k, k - primera, rect, acciones);
-                }
-                self.limpiar_animaciones(ui.ctx());
-                if self.desplazar_a_foco {
-                    if let Some(k) = self.foco.clone().and_then(|f| self.indice_visible(&f)) {
-                        ui.scroll_to_rect(fila(k).translate(origen.to_vec2()), None);
-                    }
-                    self.desplazar_a_foco = false;
-                }
-                if n == 0 {
-                    self.estado_vacio(ui, p, visible);
-                }
-                self.fondo(ui, p, &fondo, origen, &fila, acciones);
-            });
-    }
-
-    fn fila_lista(&mut self, ui: &mut Ui, p: &Paleta, k: usize, orden: usize, rect: Rect, acciones: &mut Vec<Accion>) {
-        let it = self.item(k);
-        let resp = ui.interact(rect, ui.id().with(("fila", &it.ruta)), Sense::click_and_drag());
-        let seleccionado = self.seleccion.contains(&it.ruta);
-        let soltar_aqui = it.es_carpeta()
-            && resp.dnd_hover_payload::<Arrastre>().is_some_and(|a| !a.0.contains(&it.ruta));
-        let (aparicion, dy) = self.aparicion(orden);
-        let h = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered() && !seleccionado, 0.12);
-        let salto = self.salto(&it.ruta);
-        let mut pintor = ui.painter().clone();
-        pintor.multiply_opacity(aparicion);
-        let painter = &pintor;
-        // En la lista, las filas entran desde un poco a la izquierda
-        let rect = rect.translate(vec2(-dy * 0.8, 0.0));
-        let radio = CornerRadius::same(6);
-        if seleccionado {
-            painter.rect(rect, radio, p.seleccion, Stroke::new(1.0, p.seleccion_borde), StrokeKind::Inside);
-        } else if soltar_aqui {
-            painter.rect(rect, radio, con_alfa(p.acento, 0.18), Stroke::new(2.0, p.acento), StrokeKind::Inside);
-        } else {
-            if k % 2 == 1 {
-                painter.rect_filled(rect, radio, con_alfa(p.texto, 0.025));
-            }
-            if h > 0.0 {
-                painter.rect_filled(rect, radio, con_alfa(p.hover, h * p.hover.a() as f32 / 255.0));
-            }
-        }
-        let alfa = if self.cortado(&it.ruta) { 0.45 } else if it.entrada.es_oculto { 0.65 } else { 1.0 };
-        let lado = 24.0 * (1.0 + 0.2 * salto);
-        let icono = Rect::from_center_size(pos2(rect.left() + 17.0 + 2.0 * h, rect.center().y), vec2(lado, lado));
-        self.pintar_icono(painter, icono, &it.entrada, alfa);
-
-        let (nombre, tam, tipo, fecha) = Self::columnas_lista(rect.width());
-        let color = if alfa < 1.0 { con_alfa(p.texto, 0.75) } else { p.texto };
-        let g = texto_ajustado(painter, &it.nombre, nombre - 44.0, 1, 13.5, color, false);
-        painter.galley(pos2(rect.left() + 34.0, rect.center().y - g.size().y / 2.0), g, color);
-        let mut x = rect.left() + nombre;
-        let e = &it.entrada;
-        if let Some(w) = tam {
-            let texto = if e.tipo == TipoEntrada::Archivo { formato::tamano(e.tamano) } else { "—".into() };
-            painter.text(pos2(x + w - 10.0, rect.center().y), Align2::RIGHT_CENTER, texto, FontId::proportional(12.5), p.texto_tenue);
-            x += w;
-        }
-        if let Some(w) = tipo {
-            let g = texto_ajustado(painter, &e.descripcion, w - 16.0, 1, 12.5, p.texto_tenue, false);
-            painter.galley(pos2(x + 8.0, rect.center().y - g.size().y / 2.0), g, p.texto_tenue);
-            x += w;
-        }
-        if let Some(_w) = fecha {
-            painter.text(pos2(x + 8.0, rect.center().y), Align2::LEFT_CENTER, formato::fecha(e.modificado), FontId::proportional(12.5), p.texto_tenue);
-        }
-        self.interacciones(ui, &resp, &it, acciones);
-    }
-
-    // ------------------------------------------------------------------
-    //  Interacción
+    //  Interacción (igual en todas las vistas)
     // ------------------------------------------------------------------
 
     fn interacciones(&mut self, ui: &Ui, resp: &Response, it: &Item, acciones: &mut Vec<Accion>) {
@@ -481,8 +401,9 @@ impl Solar {
         if resp.double_clicked() && !self.config.un_clic && !m.ctrl && !m.shift {
             acciones.push(Accion::Abrir(ruta.clone()));
         }
+        // Clic con la rueda: la carpeta se abre en una pestaña nueva
         if resp.middle_clicked() && it.es_carpeta() {
-            acciones.push(Accion::AbrirEnVentana(ruta.clone()));
+            acciones.push(Accion::AbrirEnPestana(ruta.clone()));
         }
         if resp.secondary_clicked() && !self.seleccion.contains(ruta) {
             self.seleccionar_solo(ruta);
@@ -496,7 +417,7 @@ impl Solar {
         }
         // Soltar sobre una carpeta
         if it.es_carpeta()
-            && let Some(a) = resp.dnd_release_payload::<Arrastre>()
+            && let Some(a) = crate::ui_util::soltado::<Arrastre>(resp)
             && !a.0.contains(ruta)
         {
             acciones.push(Accion::Soltar { destino: ruta.clone(), rutas: a.0.clone(), copiar: m.ctrl });
@@ -513,16 +434,44 @@ impl Solar {
     }
 
     /// Clic en el fondo, menú del fondo y selección con banda.
+    #[allow(clippy::too_many_arguments)]
     fn fondo(
         &mut self,
         ui: &mut Ui,
         p: &Paleta,
         fondo: &Response,
         origen: Pos2,
-        rect_de: &dyn Fn(usize) -> Rect,
+        caja_de: &dyn Fn(usize) -> Rect,
+        desplazable: bool,
+        sobre_carpeta: bool,
         acciones: &mut Vec<Accion>,
     ) {
         let m = ui.input(|i| i.modifiers);
+        // Archivos de otro lado encima del fondo: se marca toda la vista
+        let de_otro_lado = fondo.dnd_hover_payload::<Arrastre>().is_some_and(|a| match &self.ubicacion {
+            Ubicacion::Ruta(dir) => a.0.is_empty() || a.0.iter().any(|r| r.parent() != Some(dir.as_path())),
+            Ubicacion::Papelera => true,
+        });
+        if de_otro_lado && !sobre_carpeta {
+            ui.painter().rect(
+                fondo.rect.shrink(4.0),
+                CornerRadius::same(12),
+                con_alfa(p.acento, 0.05),
+                Stroke::new(2.0, con_alfa(p.acento, 0.65)),
+                StrokeKind::Inside,
+            );
+        }
+        // Soltar en el fondo (no en una carpeta): a la carpeta abierta. Sirve
+        // al traer archivos de otra pestaña (se abre sola al pasar por encima).
+        // Si vienen de aquí mismo, no pasa nada.
+        if let Some(a) = crate::ui_util::soltado::<Arrastre>(fondo)
+            && !a.0.is_empty()
+        {
+            match &self.ubicacion {
+                Ubicacion::Ruta(dir) => acciones.push(Accion::Soltar { destino: dir.clone(), rutas: a.0.clone(), copiar: m.ctrl }),
+                Ubicacion::Papelera => acciones.push(Accion::Papelera(a.0.clone())),
+            }
+        }
         if (fondo.clicked() || fondo.secondary_clicked()) && !m.ctrl && !m.shift {
             self.seleccion.clear();
             self.foco = None;
@@ -544,7 +493,7 @@ impl Solar {
         let caja = Rect::from_two_pos(banda.inicio, actual);
         let mut nueva = banda.base.clone();
         for (k, &i) in self.visibles.iter().enumerate() {
-            if rect_de(k).shrink(8.0).intersects(caja) {
+            if caja_de(k).intersects(caja) {
                 nueva.insert(self.entradas[i].ruta.clone());
             }
         }
@@ -557,11 +506,13 @@ impl Solar {
             Stroke::new(1.0, con_alfa(p.acento, 0.8)),
             StrokeKind::Inside,
         );
-        let clip = ui.clip_rect();
-        if puntero.y < clip.top() + 28.0 {
-            ui.scroll_with_delta(vec2(0.0, 14.0));
-        } else if puntero.y > clip.bottom() - 28.0 {
-            ui.scroll_with_delta(vec2(0.0, -14.0));
+        if desplazable {
+            let clip = ui.clip_rect();
+            if puntero.y < clip.top() + 28.0 {
+                ui.scroll_with_delta(vec2(0.0, 14.0));
+            } else if puntero.y > clip.bottom() - 28.0 {
+                ui.scroll_with_delta(vec2(0.0, -14.0));
+            }
         }
         ui.ctx().request_repaint();
         if suelto {
@@ -569,7 +520,8 @@ impl Solar {
         }
     }
 
-    /// Flechas, Enter, Retroceso, Escape y escribir para buscar.
+    /// Flechas, Enter, Retroceso, Escape y escribir para buscar. A dónde
+    /// lleva cada flecha lo decide la vista que se ve.
     pub(crate) fn teclado_vista(&mut self, ctx: &egui::Context, acciones: &mut Vec<Accion>) {
         let eventos = ctx.input(|i| i.events.clone());
         for ev in eventos {
@@ -578,30 +530,18 @@ impl Solar {
                     if modifiers.ctrl || modifiers.alt || modifiers.command {
                         continue;
                     }
-                    let n = self.visibles.len() as isize;
-                    let cols = if self.config.vista == Vista::Lista { 1 } else { self.columnas.max(1) } as isize;
-                    let pagina = (self.filas_visibles.max(1) as isize) * cols;
-                    let paso = match key {
-                        Key::ArrowRight if cols > 1 => Some(1),
-                        Key::ArrowLeft if cols > 1 => Some(-1),
-                        Key::ArrowDown => Some(cols),
-                        Key::ArrowUp => Some(-cols),
-                        Key::PageDown => Some(pagina),
-                        Key::PageUp => Some(-pagina),
-                        Key::Home => Some(isize::MIN / 2),
-                        Key::End => Some(isize::MAX / 2),
-                        _ => None,
-                    };
-                    if let Some(paso) = paso {
-                        if n == 0 {
+                    let es_movimiento = matches!(
+                        key,
+                        Key::ArrowRight | Key::ArrowLeft | Key::ArrowDown | Key::ArrowUp | Key::PageDown | Key::PageUp | Key::Home | Key::End
+                    );
+                    if es_movimiento {
+                        if self.visibles.is_empty() {
                             continue;
                         }
-                        let actual = self.foco.clone().and_then(|f| self.indice_visible(&f)).map(|i| i as isize);
-                        let nuevo = match actual {
-                            None => 0,
-                            Some(a) => a.saturating_add(paso).clamp(0, n - 1),
-                        };
-                        let ruta = self.entradas[self.visibles[nuevo as usize]].ruta.clone();
+                        let actual = self.foco.clone().and_then(|f| self.indice_visible(&f));
+                        let nuevo = self.disposicion.as_ref().and_then(|d| d.vecino(actual, key));
+                        let Some(nuevo) = nuevo.filter(|&n| n < self.visibles.len()) else { continue };
+                        let ruta = self.entradas[self.visibles[nuevo]].ruta.clone();
                         if modifiers.shift {
                             if self.ancla.is_none() {
                                 self.ancla = self.foco.clone().or(Some(ruta.clone()));
@@ -665,311 +605,29 @@ impl Solar {
         pintor.galley(caja.min + vec2(10.0, 6.0), g, p.texto_acento);
         ctx.set_cursor_icon(if copiar { CursorIcon::Copy } else { CursorIcon::Grabbing });
     }
+}
 
-    // ------------------------------------------------------------------
-    //  Menús del clic derecho
-    // ------------------------------------------------------------------
-
-    fn opcion(&self, ui: &mut Ui, glifo: &str, texto: &str, atajo: &str) -> bool {
-        let r = ui.add(egui::Button::new(format!("{glifo}   {texto}")).shortcut_text(RichText::new(atajo).small().color(self.paleta.texto_tenue)));
-        if r.clicked() {
-            ui.close();
-            true
-        } else {
-            false
-        }
+/// Recorre una cuadrícula de `cols` columnas con las flechas.
+pub(crate) fn vecino_rejilla(actual: Option<usize>, tecla: Key, n: usize, cols: usize, por_pagina: usize) -> Option<usize> {
+    if n == 0 {
+        return None;
     }
-
-    /// Programas para el submenú «Abrir con» (se calculan una vez por selección).
-    fn programas_menu(&self, archivos: &[PathBuf]) -> Rc<Vec<Programa>> {
-        if let Some((rutas, lista)) = self.menu_programas.borrow().as_ref()
-            && rutas.as_slice() == archivos
-        {
-            return lista.clone();
-        }
-        let lista = Rc::new(nucleo::programas_para(archivos, false).map(|l| l.programas).unwrap_or_default());
-        self.menu_programas.replace(Some((archivos.to_vec(), lista.clone())));
-        lista
-    }
-
-    fn submenu_abrir_con(&self, ui: &mut Ui, archivos: Vec<PathBuf>, acciones: &mut Vec<Accion>) {
-        if archivos.is_empty() {
-            return;
-        }
-        ui.menu_button(format!("{}   Abrir con", ph::ARROW_SQUARE_OUT), |ui| {
-            ui.set_min_width(240.0);
-            let lista = self.programas_menu(&archivos);
-            let mut hubo = false;
-            for prog in lista.iter().filter(|p| p.afinidad > Afinidad::Otro).take(10) {
-                hubo = true;
-                let mut texto = prog.nombre.clone();
-                if prog.afinidad == Afinidad::Predeterminado {
-                    texto.push_str("  (predeterminado)");
-                }
-                let textura = self.iconos_programas.borrow_mut().textura(ui.ctx(), &prog.icono);
-                let boton = match &textura {
-                    Some(t) => egui::Button::image_and_text(egui::Image::new(t).fit_to_exact_size(vec2(18.0, 18.0)), texto),
-                    None => egui::Button::new(format!("{}   {texto}", dialogos::glifo_programa(prog))),
-                };
-                let mut r = ui.add(boton);
-                if prog.terminal {
-                    r = r.on_hover_text("Se abre en la terminal");
-                }
-                if r.clicked() {
-                    acciones.push(Accion::AbrirConPrograma { programa: Box::new(prog.clone()), rutas: archivos.clone() });
-                    ui.close();
-                }
-            }
-            if !hubo {
-                ui.label(RichText::new("Ningún programa dice abrir esto").color(self.paleta.texto_tenue));
-            }
-            ui.separator();
-            if self.opcion(ui, ph::DOTS_THREE_CIRCLE, "Otro programa…", "") {
-                acciones.push(Accion::AbrirCon(archivos.clone()));
-            }
-        });
-    }
-
-    /// «Añadir a Lugares» o, si la carpeta ya está ahí, «Quitar de Lugares».
-    fn opcion_lugar(&self, ui: &mut Ui, ruta: &std::path::Path, atajo: &str, acciones: &mut Vec<Accion>) {
-        match self.indice_lugar(ruta) {
-            Some(i) => {
-                if self.opcion(ui, ph::STAR_HALF, "Quitar de Lugares", "") {
-                    acciones.push(Accion::QuitarLugar(i));
-                }
-            }
-            None => {
-                if self.opcion(ui, ph::STAR, "Añadir a Lugares", atajo) {
-                    acciones.push(Accion::AgregarLugar(ruta.to_path_buf()));
-                }
-            }
-        }
-    }
-
-    fn opcion_peligro(&self, ui: &mut Ui, glifo: &str, texto: &str, atajo: &str) -> bool {
-        let r = ui.add(
-            egui::Button::new(RichText::new(format!("{glifo}   {texto}")).color(self.paleta.peligro))
-                .shortcut_text(RichText::new(atajo).small().color(self.paleta.texto_tenue)),
-        );
-        if r.clicked() {
-            ui.close();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn menu_elemento(&self, ui: &mut Ui, ruta: &std::path::Path, es_carpeta: bool, acciones: &mut Vec<Accion>) {
-        ui.set_min_width(250.0);
-        let sel = {
-            let s = self.seleccionados();
-            if s.is_empty() { vec![ruta.to_path_buf()] } else { s }
-        };
-        let n = sel.len();
-        let carpetas: Vec<PathBuf> = sel.iter().filter(|r| self.entrada(r).is_some_and(|e| e.es_carpeta())).cloned().collect();
-        let todas_carpetas = carpetas.len() == n;
-        let a = |id: &str| self.atajos.texto(id);
-
-        if n == 1 {
-            if self.opcion(ui, ph::FOLDER_OPEN, "Abrir", "Enter") {
-                acciones.push(Accion::Abrir(ruta.to_path_buf()));
-            }
-            if es_carpeta {
-                if self.opcion(ui, ph::APP_WINDOW, "Abrir en ventana nueva", "") {
-                    acciones.push(Accion::AbrirEnVentana(ruta.to_path_buf()));
-                }
-                if self.opcion(ui, ph::TERMINAL_WINDOW, "Abrir terminal aquí", "") {
-                    acciones.push(Accion::AbrirTerminal(ruta.to_path_buf()));
-                }
-            } else {
-                self.submenu_abrir_con(ui, sel.clone(), acciones);
-            }
-        } else {
-            if self.opcion(ui, ph::FOLDER_OPEN, &format!("Abrir {}", formato::elementos(n)), "Enter") {
-                acciones.push(Accion::AbrirSeleccion);
-            }
-            if !todas_carpetas {
-                self.submenu_abrir_con(ui, sel.iter().filter(|r| !carpetas.contains(r)).cloned().collect(), acciones);
-            }
-        }
-        ui.separator();
-        if self.opcion(ui, ph::SCISSORS, "Cortar", &a("cortar")) {
-            acciones.push(Accion::Cortar(sel.clone()));
-        }
-        if self.opcion(ui, ph::COPY, "Copiar", &a("copiar")) {
-            acciones.push(Accion::Copiar(sel.clone()));
-        }
-        if n == 1 && es_carpeta && self.portapapeles.is_some() && self.opcion(ui, ph::CLIPBOARD, "Pegar dentro", "") {
-            acciones.push(Accion::Pegar(ruta.to_path_buf()));
-        }
-        if self.opcion(ui, ph::COPY_SIMPLE, "Duplicar", &a("duplicar")) {
-            acciones.push(Accion::Duplicar(sel.clone()));
-        }
-        if n == 1 && self.opcion(ui, ph::PENCIL_SIMPLE, "Renombrar…", &a("renombrar")) {
-            acciones.push(Accion::Renombrar(ruta.to_path_buf()));
-        }
-
-        if todas_carpetas {
-            ui.separator();
-            self.menus_estilo(ui, &carpetas, acciones);
-        }
-
-        ui.separator();
-        if n == 1 && es_carpeta {
-            self.opcion_lugar(ui, ruta, &a("agregar_lugar"), acciones);
-        }
-        if self.opcion(ui, ph::LINK, if n == 1 { "Copiar ruta" } else { "Copiar rutas" }, "") {
-            acciones.push(Accion::CopiarRuta(sel.clone()));
-        }
-        ui.separator();
-        if self.opcion(ui, ph::TRASH, "Mover a la papelera", &a("papelera")) {
-            acciones.push(Accion::Papelera(sel.clone()));
-        }
-        if self.opcion_peligro(ui, ph::X_CIRCLE, "Eliminar para siempre…", &a("eliminar")) {
-            acciones.push(Accion::Eliminar(sel.clone()));
-        }
-        ui.separator();
-        if self.opcion(ui, ph::INFO, "Propiedades", &a("propiedades")) {
-            acciones.push(Accion::Propiedades(sel));
-        }
-    }
-
-    /// Submenús "Color de carpeta" y "Logotipo" (y el diálogo completo).
-    pub(crate) fn menus_estilo(&self, ui: &mut Ui, carpetas: &[PathBuf], acciones: &mut Vec<Accion>) {
-        let p = &self.paleta;
-        let actual = carpetas.first().and_then(|r| self.estilo_de(r)).unwrap_or_default();
-        ui.menu_button(format!("{}   Color de carpeta", ph::PALETTE), |ui| {
-            ui.set_min_width(250.0);
-            ui.label(RichText::new("Colores listos").small().color(p.texto_tenue));
-            if let Some(c) = ui_util::rejilla_colores(ui, p, actual.color, 7, 11.0) {
-                acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::Color(Some(c))));
-                ui.close();
-            }
-            ui.separator();
-            if self.opcion(ui, ph::EYEDROPPER, "Color personalizado…", "") {
-                acciones.push(Accion::Personalizar(carpetas.to_vec()));
-            }
-            if actual.color.is_some() && self.opcion(ui, ph::ARROW_COUNTER_CLOCKWISE, "Usar el color del tema", "") {
-                acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::Color(None)));
-            }
-        });
-        ui.menu_button(format!("{}   Logotipo", ph::SMILEY), |ui| {
-            ui.set_min_width(300.0);
-            ScrollArea::vertical().max_height(250.0).show(ui, |ui| {
-                if let Some(id) = ui_util::rejilla_logotipos(ui, p, actual.icono.as_deref(), "", 8, 32.0) {
-                    acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::Logotipo(Some(id.to_string()))));
-                    ui.close();
-                }
-            });
-            ui.separator();
-            ui.menu_button(format!("{}   Color del logotipo", ph::DROP), |ui| {
-                ui.set_min_width(250.0);
-                if let Some(c) = ui_util::rejilla_colores(ui, p, actual.color_icono, 7, 11.0) {
-                    acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::ColorLogotipo(Some(c))));
-                    ui.close();
-                }
-                ui.separator();
-                if self.opcion(ui, ph::MAGIC_WAND, "Automático (según la carpeta)", "") {
-                    acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::ColorLogotipo(None)));
-                }
-            });
-            if self.opcion(ui, ph::TEXT_AA, "Texto o emoji…", "") {
-                acciones.push(Accion::Personalizar(carpetas.to_vec()));
-            }
-            if actual.icono.is_some() && self.opcion(ui, ph::PROHIBIT, "Quitar logotipo", "") {
-                acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::Logotipo(None)));
-            }
-        });
-        if self.opcion(ui, ph::SPARKLE, "Personalizar carpeta…", &self.atajos.texto("personalizar")) {
-            acciones.push(Accion::Personalizar(carpetas.to_vec()));
-        }
-        let alguna = carpetas.iter().any(|r| self.estilo_de(r).is_some_and(|e| !e.vacio()));
-        if alguna && self.opcion(ui, ph::ARROW_COUNTER_CLOCKWISE, "Quitar personalización", "") {
-            acciones.push(Accion::Estilo(carpetas.to_vec(), CambioEstilo::Quitar));
-        }
-    }
-
-    fn menu_fondo(&self, ui: &mut Ui, acciones: &mut Vec<Accion>) {
-        ui.set_min_width(250.0);
-        let a = |id: &str| self.atajos.texto(id);
-        if self.ubicacion == Ubicacion::Papelera {
-            if self.opcion(ui, ph::SELECTION_ALL, "Seleccionar todo", &a("seleccionar_todo")) {
-                acciones.push(Accion::SeleccionarTodo);
-            }
-            if !self.entradas.is_empty() && self.opcion_peligro(ui, ph::BROOM, "Vaciar papelera…", "") {
-                acciones.push(Accion::VaciarPapelera);
-            }
-            return;
-        }
-        let Some(dir) = self.ubicacion.ruta().map(PathBuf::from) else { return };
-        if self.opcion(ui, ph::FOLDER_PLUS, "Nueva carpeta…", &a("nueva_carpeta")) {
-            acciones.push(Accion::NuevaCarpeta);
-        }
-        if self.opcion(ui, ph::FILE_PLUS, "Nuevo archivo…", &a("nuevo_archivo")) {
-            acciones.push(Accion::NuevoArchivo);
-        }
-        if self.portapapeles.is_some() && self.opcion(ui, ph::CLIPBOARD, "Pegar", &a("pegar")) {
-            acciones.push(Accion::Pegar(dir.clone()));
-        }
-        ui.separator();
-        if self.opcion(ui, ph::SELECTION_ALL, "Seleccionar todo", &a("seleccionar_todo")) {
-            acciones.push(Accion::SeleccionarTodo);
-        }
-        ui.menu_button(format!("{}   Ordenar por", ph::SORT_ASCENDING), |ui| {
-            for o in Orden::TODOS {
-                let marca = if self.config.orden == o { ph::CHECK } else { " " };
-                if self.opcion(ui, marca, o.nombre(), "") {
-                    acciones.push(Accion::Ordenar(o));
-                }
-            }
-            ui.separator();
-            let desc = self.config.orden_descendente;
-            if self.opcion(ui, if desc { ph::CHECK } else { " " }, "Al revés", "") {
-                acciones.push(Accion::OrdenDescendente(!desc));
-            }
-            let cp = self.config.carpetas_primero;
-            if self.opcion(ui, if cp { ph::CHECK } else { " " }, "Carpetas primero", "") {
-                acciones.push(Accion::CarpetasPrimero(!cp));
-            }
-        });
-        ui.menu_button(format!("{}   Vista", ph::SQUARES_FOUR), |ui| {
-            let v = self.config.vista;
-            if self.opcion(ui, if v == Vista::Cuadricula { ph::CHECK } else { " " }, "Cuadrícula", &a("vista_cuadricula")) {
-                acciones.push(Accion::CambiarVista(Vista::Cuadricula));
-            }
-            if self.opcion(ui, if v == Vista::Lista { ph::CHECK } else { " " }, "Lista", &a("vista_lista")) {
-                acciones.push(Accion::CambiarVista(Vista::Lista));
-            }
-        });
-        let ocultos = self.config.mostrar_ocultos;
-        if self.opcion(ui, if ocultos { ph::EYE } else { ph::EYE_SLASH }, if ocultos { "Esconder ocultos" } else { "Mostrar ocultos" }, &a("ocultos")) {
-            acciones.push(Accion::AlternarOcultos);
-        }
-        ui.separator();
-        self.menus_estilo(ui, std::slice::from_ref(&dir), acciones);
-        ui.separator();
-        if self.opcion(ui, ph::TERMINAL_WINDOW, "Abrir terminal aquí", &a("terminal")) {
-            acciones.push(Accion::AbrirTerminal(dir.clone()));
-        }
-        self.opcion_lugar(ui, &dir, &a("agregar_lugar"), acciones);
-        if self.opcion(ui, ph::INFO, "Propiedades de esta carpeta", "") {
-            acciones.push(Accion::Propiedades(vec![dir]));
-        }
-    }
-
-    fn menu_papelera(&self, ui: &mut Ui, acciones: &mut Vec<Accion>) {
-        ui.set_min_width(230.0);
-        let sel = self.seleccionados();
-        if sel.is_empty() {
-            return;
-        }
-        if self.opcion(ui, ph::ARROW_COUNTER_CLOCKWISE, "Restaurar", "") {
-            acciones.push(Accion::Restaurar(sel.clone()));
-        }
-        if self.opcion_peligro(ui, ph::X_CIRCLE, "Eliminar para siempre…", &self.atajos.texto("eliminar")) {
-            acciones.push(Accion::BorrarDePapelera(sel));
-        }
-    }
+    let cols = cols.max(1) as isize;
+    let paso = match tecla {
+        Key::ArrowRight if cols > 1 => 1,
+        Key::ArrowLeft if cols > 1 => -1,
+        Key::ArrowDown => cols,
+        Key::ArrowUp => -cols,
+        Key::PageDown => por_pagina.max(1) as isize * cols,
+        Key::PageUp => -(por_pagina.max(1) as isize) * cols,
+        Key::Home => isize::MIN / 2,
+        Key::End => isize::MAX / 2,
+        _ => return None,
+    };
+    Some(match actual {
+        None => 0,
+        Some(a) => (a as isize).saturating_add(paso).clamp(0, n as isize - 1) as usize,
+    })
 }
 
 /// Muestra el ícono de una entrada como widget (para diálogos).
@@ -977,6 +635,3 @@ pub fn icono_entrada(app: &Solar, ui: &mut Ui, e: &Entrada, lado: f32) {
     let (rect, _) = ui.allocate_exact_size(vec2(lado, lado), Sense::hover());
     app.pintar_icono(ui.painter(), rect, e, 1.0);
 }
-
-#[allow(dead_code)]
-fn _usar(_: &nucleo::Vista) {}

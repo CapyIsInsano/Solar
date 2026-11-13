@@ -8,6 +8,13 @@ use eframe::egui::{
     Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 
+/// Como `Response::dnd_release_payload`, pero sin tirar una carga de otro
+/// tipo: egui la saca aunque no sea la que se pide, y entonces el que sí la
+/// esperaba (en el mismo widget o en otro) ya no la encuentra.
+pub fn soltado<T: std::any::Any + Send + Sync>(resp: &Response) -> Option<std::sync::Arc<T>> {
+    if egui::DragAndDrop::has_payload_of_type::<T>(&resp.ctx) { resp.dnd_release_payload::<T>() } else { None }
+}
+
 /// Botón cuadrado con un ícono de Phosphor, sin marco hasta que pasas el mouse.
 pub fn boton_icono(ui: &mut Ui, p: &Paleta, glifo: &str, ayuda: &str, habilitado: bool) -> Response {
     boton_icono_estado(ui, p, glifo, ayuda, habilitado, false)
