@@ -40,11 +40,19 @@ static const SolarAtajo ATAJOS[] = {
     { "agregar_lugar", "Ctrl+D" },
     { "vista_cuadricula", "Ctrl+1" },
     { "vista_lista", "Ctrl+2" },
+    { "vista_mosaicos", "Ctrl+3" },
+    { "vista_orbita", "Ctrl+4" },
     { "acercar", "Ctrl+Plus" },
     { "alejar", "Ctrl+Minus" },
     { "barra_lateral", "F9" },
     { "terminal", "F4" },
     { "ajustes", "Ctrl+Comma" },
+    { "nueva_pestana", "Ctrl+T" },
+    { "cerrar_pestana", "Ctrl+W" },
+    { "siguiente_pestana", "Ctrl+Tab" },
+    { "anterior_pestana", "Ctrl+Shift+Tab" },
+    { "reabrir_pestana", "Ctrl+Shift+T" },
+    { "espacios", "Ctrl+Shift+E" },
     { "nueva_ventana", "Ctrl+N" },
     { "cerrar", "Ctrl+Q" },
 };
@@ -110,6 +118,19 @@ static void lugar_xdg(SolarConfig *c, size_t *cap, const char *clave, const char
     }
 }
 
+void solar_ajustes_vista_defecto(SolarAjustesVista *a)
+{
+    a->tamano_iconos = 72;
+    a->mostrar_ocultos = 0;
+    a->carpetas_primero = 1;
+    a->orden = SOLAR_ORDEN_NOMBRE;
+    a->orden_descendente = 0;
+    a->orbita_girar = 1;
+    a->orbita_velocidad = 1.0;
+    a->orbita_orden = SOLAR_ORBITA_GRANDE_PRIMERO;
+    a->orbita_electricidad = 1;
+}
+
 void solar_config_defecto(SolarConfig *c)
 {
     memset(c, 0, sizeof *c);
@@ -123,15 +144,12 @@ void solar_config_defecto(SolarConfig *c)
     c->barra_lateral = SOLAR_LADO_IZQUIERDA;
     c->mostrar_barra_lateral = 1;
     c->vista = SOLAR_VISTA_CUADRICULA;
-    c->tamano_iconos = 72;
-    c->mostrar_ocultos = 0;
-    c->carpetas_primero = 1;
-    c->orden = SOLAR_ORDEN_NOMBRE;
-    c->orden_descendente = 0;
+    solar_ajustes_vista_defecto(&c->archivos);
     c->un_clic = 0;
     c->confirmar_papelera = 0;
     c->confirmar_eliminar = 1;
     c->terminal = solar_strdup("");
+    c->restaurar_sesion = 1;
     c->mostrar_usb = 1;
     c->mostrar_discos_internos = 0;
     c->sonidos = 1;
@@ -195,14 +213,7 @@ void solar_config_liberar(SolarConfig *c)
 /*  Lectura                                                              */
 /* ===================================================================== */
 
-typedef struct {
-    lua_State *L;
-    int tabla;
-    char *avisos;
-    size_t tam;
-} Lector;
-
-static void leer_bool(Lector *l, const char *clave, int32_t *destino)
+void lector_bool(Lector *l, const char *clave, int32_t *destino)
 {
     lua_getfield(l->L, l->tabla, clave);
     if (lua_isboolean(l->L, -1)) *destino = lua_toboolean(l->L, -1);
@@ -210,7 +221,7 @@ static void leer_bool(Lector *l, const char *clave, int32_t *destino)
     lua_pop(l->L, 1);
 }
 
-static void leer_numero(Lector *l, const char *clave, double *destino, double min, double max)
+void lector_numero(Lector *l, const char *clave, double *destino, double min, double max)
 {
     lua_getfield(l->L, l->tabla, clave);
     if (lua_type(l->L, -1) == LUA_TNUMBER) {
@@ -223,14 +234,14 @@ static void leer_numero(Lector *l, const char *clave, double *destino, double mi
     lua_pop(l->L, 1);
 }
 
-static void leer_entero(Lector *l, const char *clave, int32_t *destino, int min, int max)
+void lector_entero(Lector *l, const char *clave, int32_t *destino, int min, int max)
 {
     double v = *destino;
-    leer_numero(l, clave, &v, min, max);
+    lector_numero(l, clave, &v, min, max);
     *destino = (int32_t)(v + 0.5);
 }
 
-static void leer_texto(Lector *l, const char *clave, char **destino)
+void lector_texto(Lector *l, const char *clave, char **destino)
 {
     lua_getfield(l->L, l->tabla, clave);
     if (lua_type(l->L, -1) == LUA_TSTRING) {
@@ -245,12 +256,7 @@ static void leer_texto(Lector *l, const char *clave, char **destino)
     lua_pop(l->L, 1);
 }
 
-typedef struct {
-    const char *nombre;
-    int valor;
-} Opcion;
-
-static void leer_opcion(Lector *l, const char *clave, int32_t *destino, const Opcion *opciones, size_t n)
+void lector_opcion(Lector *l, const char *clave, int32_t *destino, const Opcion *opciones, size_t n)
 {
     lua_getfield(l->L, l->tabla, clave);
     if (lua_type(l->L, -1) == LUA_TSTRING) {
@@ -359,13 +365,57 @@ static void leer_atajos(Lector *l, SolarConfig *c)
     lua_pop(L, 1);
 }
 
+/* Opciones que se escriben como texto */
+const Opcion OPCIONES_VISTA[] = {
+    { "cuadricula", SOLAR_VISTA_CUADRICULA }, { "lista", SOLAR_VISTA_LISTA },
+    { "mosaicos", SOLAR_VISTA_MOSAICOS }, { "orbita", SOLAR_VISTA_ORBITA },
+    { "cuadrícula", SOLAR_VISTA_CUADRICULA }, { "órbita", SOLAR_VISTA_ORBITA },
+    { "grid", SOLAR_VISTA_CUADRICULA }, { "list", SOLAR_VISTA_LISTA },
+    { "tiles", SOLAR_VISTA_MOSAICOS }, { "orbit", SOLAR_VISTA_ORBITA },
+};
+const size_t N_OPCIONES_VISTA = SOLAR_LEN(OPCIONES_VISTA);
+const char *const NOMBRES_VISTA[4] = { "cuadricula", "lista", "mosaicos", "orbita" };
+
+static const Opcion ORDENES[] = { { "nombre", SOLAR_ORDEN_NOMBRE }, { "tamano", SOLAR_ORDEN_TAMANO },
+                                  { "fecha", SOLAR_ORDEN_FECHA }, { "tipo", SOLAR_ORDEN_TIPO },
+                                  { "tamaño", SOLAR_ORDEN_TAMANO }, { "name", SOLAR_ORDEN_NOMBRE },
+                                  { "size", SOLAR_ORDEN_TAMANO }, { "date", SOLAR_ORDEN_FECHA },
+                                  { "type", SOLAR_ORDEN_TIPO } };
+static const char *const NOMBRES_ORDEN[4] = { "nombre", "tamano", "fecha", "tipo" };
+
+static const Opcion ORDENES_ORBITA[] = {
+    { "grande_primero", SOLAR_ORBITA_GRANDE_PRIMERO }, { "chico_primero", SOLAR_ORBITA_CHICO_PRIMERO },
+    { "nombre", SOLAR_ORBITA_NOMBRE }, { "tipo", SOLAR_ORBITA_TIPO }, { "fecha", SOLAR_ORBITA_FECHA },
+    { "aleatorio", SOLAR_ORBITA_ALEATORIO }, { "grandes", SOLAR_ORBITA_GRANDE_PRIMERO },
+    { "chicos", SOLAR_ORBITA_CHICO_PRIMERO }, { "azar", SOLAR_ORBITA_ALEATORIO },
+    { "random", SOLAR_ORBITA_ALEATORIO },
+};
+static const char *const NOMBRES_ORBITA[6] = { "grande_primero", "chico_primero", "nombre", "tipo", "fecha", "aleatorio" };
+
+const char *nombre_orden(int orden) { return NOMBRES_ORDEN[orden >= 0 && orden <= 3 ? orden : 0]; }
+const char *nombre_orden_orbita(int orden) { return NOMBRES_ORBITA[orden >= 0 && orden <= 5 ? orden : 0]; }
+
+void leer_ajustes_vista(Lector *l, SolarAjustesVista *a)
+{
+    lector_entero(l, "tamano_iconos", &a->tamano_iconos, 40, 160);
+    lector_bool(l, "mostrar_ocultos", &a->mostrar_ocultos);
+    lector_bool(l, "carpetas_primero", &a->carpetas_primero);
+    lector_opcion(l, "orden", &a->orden, ORDENES, SOLAR_LEN(ORDENES));
+    lector_bool(l, "orden_descendente", &a->orden_descendente);
+    lector_bool(l, "orbita_girar", &a->orbita_girar);
+    lector_numero(l, "orbita_velocidad", &a->orbita_velocidad, 0.10, 4.00);
+    lector_opcion(l, "orbita_orden", &a->orbita_orden, ORDENES_ORBITA, SOLAR_LEN(ORDENES_ORBITA));
+    lector_bool(l, "orbita_electricidad", &a->orbita_electricidad);
+}
+
 static const char *const CLAVES_CONOCIDAS[] = {
     "tema", "transparencia", "opacidad", "escala", "fuente", "barra_titulo_integrada",
     "barra_ubicacion", "barra_lateral", "mostrar_barra_lateral", "vista", "tamano_iconos",
     "mostrar_ocultos", "carpetas_primero", "orden", "orden_descendente", "un_clic",
-    "confirmar_papelera", "confirmar_eliminar", "terminal", "mostrar_usb",
+    "confirmar_papelera", "confirmar_eliminar", "terminal", "restaurar_sesion", "mostrar_usb",
     "mostrar_discos_internos", "sonidos", "volumen", "animaciones",
-    "buscar_actualizaciones", "repo_actualizaciones", "lugares", "atajos",
+    "buscar_actualizaciones", "repo_actualizaciones", "orbita_girar", "orbita_velocidad",
+    "orbita_orden", "orbita_electricidad", "lugares", "atajos",
 };
 
 static void avisar_desconocidas(Lector *l)
@@ -404,45 +454,34 @@ int solar_config_cargar(const char *archivo, SolarConfig *c, char *avisos, size_
                                          { "top", SOLAR_POS_ARRIBA }, { "bottom", SOLAR_POS_ABAJO } };
     static const Opcion LADOS[] = { { "izquierda", SOLAR_LADO_IZQUIERDA }, { "derecha", SOLAR_LADO_DERECHA },
                                     { "left", SOLAR_LADO_IZQUIERDA }, { "right", SOLAR_LADO_DERECHA } };
-    static const Opcion VISTAS[] = { { "cuadricula", SOLAR_VISTA_CUADRICULA }, { "lista", SOLAR_VISTA_LISTA },
-                                     { "cuadrícula", SOLAR_VISTA_CUADRICULA }, { "grid", SOLAR_VISTA_CUADRICULA },
-                                     { "list", SOLAR_VISTA_LISTA } };
-    static const Opcion ORDENES[] = { { "nombre", SOLAR_ORDEN_NOMBRE }, { "tamano", SOLAR_ORDEN_TAMANO },
-                                      { "fecha", SOLAR_ORDEN_FECHA }, { "tipo", SOLAR_ORDEN_TIPO },
-                                      { "tamaño", SOLAR_ORDEN_TAMANO }, { "name", SOLAR_ORDEN_NOMBRE },
-                                      { "size", SOLAR_ORDEN_TAMANO }, { "date", SOLAR_ORDEN_FECHA },
-                                      { "type", SOLAR_ORDEN_TIPO } };
 
-    leer_texto(&l, "tema", &c->tema);
+    lector_texto(&l, "tema", &c->tema);
     if (c->tema && strcmp(solar_tema_id_actual(c->tema), c->tema)) {
         char *nuevo = solar_strdup(solar_tema_id_actual(c->tema));
         if (nuevo) { free(c->tema); c->tema = nuevo; }
     }
-    leer_bool(&l, "transparencia", &c->transparencia);
-    leer_numero(&l, "opacidad", &c->opacidad, 0.30, 1.00);
-    leer_numero(&l, "escala", &c->escala, 0.75, 2.00);
-    leer_texto(&l, "fuente", &c->fuente);
-    leer_bool(&l, "barra_titulo_integrada", &c->barra_titulo_integrada);
-    leer_opcion(&l, "barra_ubicacion", &c->barra_ubicacion, POSICIONES, SOLAR_LEN(POSICIONES));
-    leer_opcion(&l, "barra_lateral", &c->barra_lateral, LADOS, SOLAR_LEN(LADOS));
-    leer_bool(&l, "mostrar_barra_lateral", &c->mostrar_barra_lateral);
-    leer_opcion(&l, "vista", &c->vista, VISTAS, SOLAR_LEN(VISTAS));
-    leer_entero(&l, "tamano_iconos", &c->tamano_iconos, 40, 160);
-    leer_bool(&l, "mostrar_ocultos", &c->mostrar_ocultos);
-    leer_bool(&l, "carpetas_primero", &c->carpetas_primero);
-    leer_opcion(&l, "orden", &c->orden, ORDENES, SOLAR_LEN(ORDENES));
-    leer_bool(&l, "orden_descendente", &c->orden_descendente);
-    leer_bool(&l, "un_clic", &c->un_clic);
-    leer_bool(&l, "confirmar_papelera", &c->confirmar_papelera);
-    leer_bool(&l, "confirmar_eliminar", &c->confirmar_eliminar);
-    leer_texto(&l, "terminal", &c->terminal);
-    leer_bool(&l, "mostrar_usb", &c->mostrar_usb);
-    leer_bool(&l, "mostrar_discos_internos", &c->mostrar_discos_internos);
-    leer_bool(&l, "sonidos", &c->sonidos);
-    leer_numero(&l, "volumen", &c->volumen, 0.0, 1.0);
-    leer_bool(&l, "animaciones", &c->animaciones);
-    leer_bool(&l, "buscar_actualizaciones", &c->buscar_actualizaciones);
-    leer_texto(&l, "repo_actualizaciones", &c->repo_actualizaciones);
+    lector_bool(&l, "transparencia", &c->transparencia);
+    lector_numero(&l, "opacidad", &c->opacidad, 0.30, 1.00);
+    lector_numero(&l, "escala", &c->escala, 0.75, 2.00);
+    lector_texto(&l, "fuente", &c->fuente);
+    lector_bool(&l, "barra_titulo_integrada", &c->barra_titulo_integrada);
+    lector_opcion(&l, "barra_ubicacion", &c->barra_ubicacion, POSICIONES, SOLAR_LEN(POSICIONES));
+    lector_opcion(&l, "barra_lateral", &c->barra_lateral, LADOS, SOLAR_LEN(LADOS));
+    lector_bool(&l, "mostrar_barra_lateral", &c->mostrar_barra_lateral);
+    lector_opcion(&l, "vista", &c->vista, OPCIONES_VISTA, N_OPCIONES_VISTA);
+    leer_ajustes_vista(&l, &c->archivos);
+    lector_bool(&l, "un_clic", &c->un_clic);
+    lector_bool(&l, "confirmar_papelera", &c->confirmar_papelera);
+    lector_bool(&l, "confirmar_eliminar", &c->confirmar_eliminar);
+    lector_texto(&l, "terminal", &c->terminal);
+    lector_bool(&l, "restaurar_sesion", &c->restaurar_sesion);
+    lector_bool(&l, "mostrar_usb", &c->mostrar_usb);
+    lector_bool(&l, "mostrar_discos_internos", &c->mostrar_discos_internos);
+    lector_bool(&l, "sonidos", &c->sonidos);
+    lector_numero(&l, "volumen", &c->volumen, 0.0, 1.0);
+    lector_bool(&l, "animaciones", &c->animaciones);
+    lector_bool(&l, "buscar_actualizaciones", &c->buscar_actualizaciones);
+    lector_texto(&l, "repo_actualizaciones", &c->repo_actualizaciones);
     leer_lugares(&l, c);
     leer_atajos(&l, c);
     if (!es_global) avisar_desconocidas(&l);
@@ -455,7 +494,7 @@ int solar_config_cargar(const char *archivo, SolarConfig *c, char *avisos, size_
 /*  Escritura                                                            */
 /* ===================================================================== */
 
-static const char *bool_lua(int v) { return v ? "true" : "false"; }
+const char *bool_lua(int v) { return v ? "true" : "false"; }
 
 /* Ancho visible de un texto UTF-8 (cuenta caracteres, no bytes). */
 static size_t ancho_utf8(const char *t)
@@ -518,8 +557,6 @@ int solar_config_guardar(const char *archivo, const SolarConfig *c)
 {
     static const char *const POS[] = { "arriba", "abajo" };
     static const char *const LADO[] = { "izquierda", "derecha" };
-    static const char *const VISTA[] = { "cuadricula", "lista" };
-    static const char *const ORDEN[] = { "nombre", "tamano", "fecha", "tipo" };
 
     Cadena s;
     cadena_iniciar(&s);
@@ -548,19 +585,29 @@ int solar_config_guardar(const char *archivo, const SolarConfig *c)
     campo_bool(&s, "mostrar_barra_lateral", c->mostrar_barra_lateral, NULL);
 
     cadena_agregar(&s, "\n  -- ── Archivos ───────────────────────────────────────────────\n");
-    campo_texto(&s, "vista", VISTA[c->vista == SOLAR_VISTA_LISTA], "\"cuadricula\" | \"lista\"");
-    campo_entero(&s, "tamano_iconos", (int)c->tamano_iconos, "40 a 160");
-    campo_bool(&s, "mostrar_ocultos", c->mostrar_ocultos, NULL);
-    campo_bool(&s, "carpetas_primero", c->carpetas_primero, NULL);
-    int orden = c->orden >= 0 && c->orden <= 3 ? c->orden : 0;
-    campo_texto(&s, "orden", ORDEN[orden], "\"nombre\" | \"tamano\" | \"fecha\" | \"tipo\"");
-    campo_bool(&s, "orden_descendente", c->orden_descendente, NULL);
+    int vista = c->vista >= 0 && c->vista <= 3 ? c->vista : 0;
+    campo_texto(&s, "vista", NOMBRES_VISTA[vista], "para espacios nuevos: cuadricula | lista | mosaicos | orbita");
+    const SolarAjustesVista *a = &c->archivos;
+    campo_entero(&s, "tamano_iconos", (int)a->tamano_iconos, "40 a 160");
+    campo_bool(&s, "mostrar_ocultos", a->mostrar_ocultos, NULL);
+    campo_bool(&s, "carpetas_primero", a->carpetas_primero, NULL);
+    int orden = a->orden >= 0 && a->orden <= 3 ? a->orden : 0;
+    campo_texto(&s, "orden", NOMBRES_ORDEN[orden], "\"nombre\" | \"tamano\" | \"fecha\" | \"tipo\"");
+    campo_bool(&s, "orden_descendente", a->orden_descendente, NULL);
     campo_bool(&s, "un_clic", c->un_clic, "abrir con un solo clic");
+
+    cadena_agregar(&s, "\n  -- ── Vista Órbita ───────────────────────────────────────────\n");
+    campo_bool(&s, "orbita_girar", a->orbita_girar, "dan vueltas alrededor de la carpeta");
+    campo_numero(&s, "orbita_velocidad", a->orbita_velocidad, "0.10 (lento) a 4.00 (rápido)");
+    int oo = a->orbita_orden >= 0 && a->orbita_orden <= 5 ? a->orbita_orden : 0;
+    campo_texto(&s, "orbita_orden", NOMBRES_ORBITA[oo], "grande_primero | chico_primero | nombre | tipo | fecha | aleatorio");
+    campo_bool(&s, "orbita_electricidad", a->orbita_electricidad, "órbitas eléctricas, siempre encendidas");
 
     cadena_agregar(&s, "\n  -- ── Comportamiento ─────────────────────────────────────────\n");
     campo_bool(&s, "confirmar_papelera", c->confirmar_papelera, "preguntar antes de mandar a la papelera");
     campo_bool(&s, "confirmar_eliminar", c->confirmar_eliminar, "preguntar antes de eliminar para siempre");
     campo_texto(&s, "terminal", c->terminal, "\"\" = detectar (foot, kitty, alacritty…)");
+    campo_bool(&s, "restaurar_sesion", c->restaurar_sesion, "al abrir, volver a las pestañas de la última vez");
 
     cadena_agregar(&s, "\n  -- ── Dispositivos ───────────────────────────────────────────\n");
     campo_bool(&s, "mostrar_usb", c->mostrar_usb, "memorias USB y tarjetas SD en la barra lateral");
