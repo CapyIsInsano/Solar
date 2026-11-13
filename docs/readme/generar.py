@@ -286,7 +286,7 @@ def portada():
     partes.append(f'<path fill="{tenue}" d="{texto("Gestor de archivos para Linux", 474, 232, INTER, 24)}"/>')
     x = 474
     for chip, color in [("Núcleo en C", "#3B82F6"), ("Interfaz en Rust", "#F97316"), ("Config en Lua", "#6366F1"),
-                        ("v0.1.1-alpha", "#A8A29E"), ("GPL-3.0", "#22C55E")]:
+                        ("v0.1.2-alpha", "#A8A29E"), ("GPL-3.0", "#22C55E")]:
         w = medir(chip, INTER_MEDIA, 13.5) + 24
         partes.append(f'<rect x="{x}" y="252" width="{w:.1f}" height="28" rx="14" fill="{color}" fill-opacity=".16" stroke="{color}" stroke-opacity=".45"/>')
         partes.append(f'<path fill="{color}" d="{texto(chip, x + 12, 271, INTER_MEDIA, 13.5)}"/>')
